@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const upload_1 = require("../middlewares/upload");
+const validateRequest_1 = require("../middlewares/validateRequest");
+const assignmentValidator_1 = require("../validators/assignmentValidator");
+const assignmentController_1 = require("../controllers/assignmentController");
+const router = (0, express_1.Router)();
+router.get('/', assignmentController_1.getAssignments);
+router.post('/', upload_1.upload.single('file'), (0, validateRequest_1.validateRequest)(assignmentValidator_1.createAssignmentSchema), assignmentController_1.createAssignment);
+router.get('/:id', assignmentController_1.getAssignmentById);
+router.get('/:id/result', assignmentController_1.getAssignmentResult);
+router.post('/:id/regenerate', assignmentController_1.regenerateAssignment);
+exports.default = router;

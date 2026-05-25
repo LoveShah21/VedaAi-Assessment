@@ -1,0 +1,25 @@
+version: "3.8"
+services:
+  mongodb:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo_data:/data/db"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  backend:
+    build: ./apps/backend
+    ports: ["4000:4000"]
+    env_file: ./apps/backend/.env
+    depends_on: [mongodb, redis]
+
+  frontend:
+    build: ./apps/frontend
+    ports: ["3000:3000"]
+    env_file: ./apps/frontend/.env.local
+    depends_on: [backend]
+
+volumes:
+  mongo_data:
