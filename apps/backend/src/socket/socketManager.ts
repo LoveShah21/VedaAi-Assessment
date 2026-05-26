@@ -1,3 +1,4 @@
+// apps/backend/src/socket/socketManager.ts
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { env } from '../config/env';
@@ -18,15 +19,15 @@ export const initSocket = (server: HttpServer): SocketIOServer => {
 
     socket.on('subscribe', (assignmentId: string) => {
       if (assignmentId) {
-        socket.join(`assignment:${assignmentId}`);
-        console.log(`🔌 Client ${socket.id} subscribed to assignment:${assignmentId}`);
+        socket.join(assignmentId);
+        console.log(`🔌 Client ${socket.id} subscribed to ${assignmentId}`);
       }
     });
 
     socket.on('unsubscribe', (assignmentId: string) => {
       if (assignmentId) {
-        socket.leave(`assignment:${assignmentId}`);
-        console.log(`🔌 Client ${socket.id} unsubscribed from assignment:${assignmentId}`);
+        socket.leave(assignmentId);
+        console.log(`🔌 Client ${socket.id} unsubscribed from ${assignmentId}`);
       }
     });
 
@@ -45,8 +46,8 @@ export const getIO = (): SocketIOServer => {
   return io;
 };
 
-export const emitToAssignment = (assignmentId: string, event: string, data: any): void => {
+export const emitToAssignment = (assignmentId: string, event: string, data: unknown): void => {
   if (io) {
-    io.to(`assignment:${assignmentId}`).emit(event, data);
+    io.to(assignmentId).emit(event, data);
   }
 };

@@ -15,6 +15,9 @@ const redis_1 = require("./config/redis");
 const socketManager_1 = require("./socket/socketManager");
 const generationWorker_1 = require("./workers/generationWorker");
 const assignmentRoutes_1 = __importDefault(require("./routes/assignmentRoutes"));
+const groupRoutes_1 = __importDefault(require("./routes/groupRoutes"));
+const settingsRoutes_1 = __importDefault(require("./routes/settingsRoutes"));
+const activityRoutes_1 = __importDefault(require("./routes/activityRoutes"));
 const errorHandler_1 = require("./middlewares/errorHandler");
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
@@ -42,6 +45,9 @@ app.use(express_1.default.urlencoded({ extended: true }));
 app.use('/uploads', express_1.default.static(uploadDir));
 // Routes
 app.use('/api/assignments', assignmentRoutes_1.default);
+app.use('/api/groups', groupRoutes_1.default);
+app.use('/api/settings', settingsRoutes_1.default);
+app.use('/api/activity', activityRoutes_1.default);
 // Base route for health check
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });

@@ -1,3 +1,4 @@
 node_modules/
 VedaAI - Hiring Assignment/
 .env
+.env.local

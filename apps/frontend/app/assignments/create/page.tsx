@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAssignmentStore, QuestionRow } from "../../../store/useAssignmentStore";
+import { ErrorBoundary } from "../../../components/common/ErrorBoundary";
+import { GenerationProgress } from "../../../components/common/GenerationProgress";
 import { 
   Upload, 
   Trash2, 
@@ -18,6 +20,34 @@ import {
   BookOpen
 } from "lucide-react";
 import axios from "axios";
+import { Step2SettingsSkeleton } from "../../../components/Skeletons";
+import { z } from "zod";
+
+const step1Schema = z.object({
+  dueDate: z.string().min(1, 'Due date is required'),
+  questionTypes: z
+    .array(
+      z.object({
+        type: z.string().min(1, 'Question type is required'),
+        count: z.number().min(1, 'Minimum 1 question').max(50),
+        marksPerQuestion: z.number().min(1, 'Minimum 1 mark').max(20),
+      })
+    )
+    .min(1, 'Add at least one question type'),
+  additionalInstructions: z.string().optional(),
+});
+
+const step2Schema = z.object({
+  subject: z.string().min(1, 'Subject is required'),
+  className: z.string().min(1, 'Class is required'),
+  schoolName: z.string().min(1, 'School name is required'),
+  timeAllowed: z.number().min(15, 'Minimum 15 minutes').max(240),
+  difficultyDistribution: z
+    .object({ easy: z.number(), medium: z.number(), hard: z.number() })
+    .refine((d) => d.easy + d.medium + d.hard === 100, 'Must sum to 100%'),
+});
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 export default function CreateAssignmentPage() {
   const activeStep = useAssignmentStore((state) => state.activeStep);
@@ -35,6 +65,86 @@ export default function CreateAssignmentPage() {
   // Local state variables
   const [isDragActive, setIsDragActive] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [countdown, setCountdown] = useState(90);
+
+  // Countdown timer while job is processing
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (activeStep === 2) {
+          handleSubmit();
+        } else {
+          handleNextStep();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeStep, formData]);
+
+  useEffect(() => {
+    if (!currentJob || currentJob.status !== "processing") return;
+    setCountdown(90);
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [currentJob?.status]);
+
+  // Load user settings defaults on component mount
+  useEffect(() => {
+    const loadDefaults = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/settings`);
+        if (res.data) {
+          setFormData({
+            schoolName: formData.schoolName || res.data.schoolName || "Veda International School",
+            timeAllowed: formData.timeAllowed === 60 ? (res.data.defaultTimeAllowed || 60) : formData.timeAllowed,
+            includeAnswerKey: res.data.includeAnswerKeyDefault !== false,
+            difficulty: res.data.defaultDifficulty === "easy" 
+              ? { easy: 60, medium: 30, hard: 10 }
+              : res.data.defaultDifficulty === "hard"
+              ? { easy: 10, medium: 30, hard: 60 }
+              : { easy: 30, medium: 50, hard: 20 }
+          });
+        }
+      } catch (err) {
+        console.warn("Could not load settings on create form mount. Checking cache.");
+        const cached = localStorage.getItem("veda_settings");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setFormData({
+            schoolName: formData.schoolName || parsed.schoolName || "Veda International School",
+            timeAllowed: formData.timeAllowed === 60 ? (parsed.defaultTimeAllowed || 60) : formData.timeAllowed,
+            includeAnswerKey: parsed.includeAnswerKeyDefault !== false,
+            difficulty: parsed.defaultDifficulty === "easy"
+              ? { easy: 60, medium: 30, hard: 10 }
+              : parsed.defaultDifficulty === "hard"
+              ? { easy: 10, medium: 30, hard: 60 }
+              : { easy: 30, medium: 50, hard: 20 }
+          });
+        } else {
+          if (!formData.schoolName) {
+            setFormData({ schoolName: "Veda International School" });
+          }
+        }
+      } finally {
+        // Artificially delay slightly (e.g. 600ms) to show skeleton load beautifully
+        setTimeout(() => {
+          setLoadingSettings(false);
+        }, 600);
+      }
+    };
+    loadDefaults();
+  }, []);
 
   // File Upload Handlers
   const handleDrag = (e: React.DragEvent) => {
@@ -59,6 +169,10 @@ export default function CreateAssignmentPage() {
         addToast("Unsupported file type. Please upload PDF, TXT, PNG or JPG.", "error");
         return;
       }
+      if (file.size > 10 * 1024 * 1024) {
+        addToast("File is too large. Maximum size is 10MB.", "error");
+        return;
+      }
       
       // Simulate file reading/storage
       const reader = new FileReader();
@@ -80,6 +194,10 @@ export default function CreateAssignmentPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (file.size > 10 * 1024 * 1024) {
+        addToast("File is too large. Maximum size is 10MB.", "error");
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         setFormData({
@@ -167,8 +285,8 @@ export default function CreateAssignmentPage() {
   };
 
   // Auto-balancing Sliders Logic
-  const handleDifficultyChange = (key: "easy" | "moderate" | "hard", val: number) => {
-    const otherKeys = (["easy", "moderate", "hard"] as const).filter(k => k !== key);
+  const handleDifficultyChange = (key: "easy" | "medium" | "hard", val: number) => {
+    const otherKeys = (["easy", "medium", "hard"] as const).filter(k => k !== key);
     const diff = 100 - val;
     const otherSum = formData.difficulty[otherKeys[0]] + formData.difficulty[otherKeys[1]];
     
@@ -189,31 +307,39 @@ export default function CreateAssignmentPage() {
   const totalQuestions = formData.questionRows.reduce((sum, r) => sum + r.count, 0);
   const totalMarks = formData.questionRows.reduce((sum, r) => sum + (r.count * r.marksPerQuestion), 0);
 
-  // Steppers controls
+  // Steppers controls with max boundaries
   const adjustCount = (id: string, step: number) => {
     const row = formData.questionRows.find(r => r.id === id);
     if (!row) return;
-    const newVal = Math.max(1, row.count + step);
+    const newVal = Math.max(1, Math.min(50, row.count + step));
     updateQuestionRow(id, { count: newVal });
   };
 
   const adjustMarks = (id: string, step: number) => {
     const row = formData.questionRows.find(r => r.id === id);
     if (!row) return;
-    const newVal = Math.max(1, row.marksPerQuestion + step);
+    const newVal = Math.max(1, Math.min(20, row.marksPerQuestion + step));
     updateQuestionRow(id, { marksPerQuestion: newVal });
   };
 
   // Step 1 Validation
   const validateStep1 = () => {
-    if (!formData.dueDate) {
-      addToast("Please select a due date.", "error");
+    const dataToParse = {
+      dueDate: formData.dueDate,
+      questionTypes: formData.questionRows.map(r => ({
+        type: r.type,
+        count: r.count,
+        marksPerQuestion: r.marksPerQuestion
+      })),
+      additionalInstructions: formData.voicePrompt
+    };
+    
+    const result = step1Schema.safeParse(dataToParse);
+    if (!result.success) {
+      addToast(result.error.errors[0].message, "error");
       return false;
     }
-    if (formData.questionRows.length === 0) {
-      addToast("Please add at least one question type row.", "error");
-      return false;
-    }
+    
     // Check that there is context
     if (!formData.file && !formData.voicePrompt.trim()) {
       addToast("Please upload a study material file or provide a text/voice prompt description.", "error");
@@ -230,20 +356,17 @@ export default function CreateAssignmentPage() {
 
   // Submit Generation Request
   const handleSubmit = async () => {
-    if (!formData.subject.trim()) {
-      addToast("Please select or enter a Subject.", "error");
-      return;
-    }
-    if (!formData.grade.trim()) {
-      addToast("Please select or enter a Class/Grade.", "error");
-      return;
-    }
-    if (!formData.schoolName.trim()) {
-      addToast("School name is required.", "error");
-      return;
-    }
-    if (formData.timeAllowed <= 0) {
-      addToast("Time allowed must be greater than 0 minutes.", "error");
+    const dataToParse = {
+      subject: formData.subject,
+      className: formData.grade,
+      schoolName: formData.schoolName,
+      timeAllowed: formData.timeAllowed,
+      difficultyDistribution: formData.difficulty
+    };
+    
+    const result = step2Schema.safeParse(dataToParse);
+    if (!result.success) {
+      addToast(result.error.errors[0].message, "error");
       return;
     }
 
@@ -273,77 +396,10 @@ export default function CreateAssignmentPage() {
 
   // Generation Loading State view (PAGE D)
   if (currentJob && currentJob.status === "processing") {
-    // Determine active checkpoint based on progress
-    const getCheckpointClass = (minProgress: number) => {
-      if (currentJob.progress >= minProgress) return "text-brand-orange border-brand-orange bg-orange-50 font-bold";
-      return "text-gray-400 border-gray-200 bg-white";
-    };
-
     return (
-      <div className="max-w-xl mx-auto bg-white rounded-2xl border border-gray-150 p-8 md:p-12 shadow-sm font-sans flex flex-col items-center justify-center space-y-8 my-10">
-        <div className="text-center space-y-2">
-          <div className="inline-flex p-3.5 bg-orange-50 rounded-full text-brand-orange border border-orange-100 animate-pulseSlow">
-            <Sparkles className="w-8 h-8" />
-          </div>
-          <h3 className="text-xl font-bold text-brand-dark">Generating Assessment</h3>
-          <p className="text-sm text-brand-secondary">
-            VedaAI is building a syllabus-aligned exam. This might take a minute.
-          </p>
-        </div>
-
-        {/* Dynamic Progress Bar */}
-        <div className="w-full space-y-1.5">
-          <div className="flex justify-between text-xs font-semibold text-brand-dark">
-            <span>Progress Status</span>
-            <span>{currentJob.progress}%</span>
-          </div>
-          <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
-            <div 
-              className="h-full bg-gradient-to-r from-brand-orange to-[#ff7d4d] transition-all duration-500 ease-out" 
-              style={{ width: `${currentJob.progress}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Step checkpoints tracker */}
-        <div className="w-full grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="flex flex-col items-center space-y-1.5">
-            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${getCheckpointClass(15)}`}>
-              1
-            </div>
-            <span className="font-medium text-brand-dark">Reading File</span>
-          </div>
-          <div className="flex flex-col items-center space-y-1.5">
-            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${getCheckpointClass(55)}`}>
-              2
-            </div>
-            <span className="font-medium text-brand-dark">Drafting Qs</span>
-          </div>
-          <div className="flex flex-col items-center space-y-1.5">
-            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${getCheckpointClass(90)}`}>
-              3
-            </div>
-            <span className="font-medium text-brand-dark">Answer Key</span>
-          </div>
-        </div>
-
-        {/* Terminal Logs Box */}
-        <div className="w-full bg-brand-dark text-gray-250 p-4 rounded-xl text-[11px] font-mono h-40 overflow-y-auto border border-gray-800 shadow-inner flex flex-col space-y-1">
-          {currentJob.logs.map((log, index) => (
-            <div key={index} className="flex items-start">
-              <span className="text-brand-orange mr-1.5">&gt;</span>
-              <span>{log}</span>
-            </div>
-          ))}
-          {/* Scroll target */}
-          <div ref={(el) => el?.scrollIntoView({ behavior: "smooth" })} />
-        </div>
-
-        <div className="text-[11px] text-brand-secondary flex items-center space-x-1 justify-center">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-brand-green animate-pulse" />
-          <span>Realtime generator pipeline active</span>
-        </div>
-      </div>
+      <ErrorBoundary fallback={<div className="max-w-xl mx-auto bg-white rounded-2xl border border-gray-150 p-8 text-center text-red-600 font-bold">Generation status unavailable.</div>}>
+        <GenerationProgress countdown={countdown} />
+      </ErrorBoundary>
     );
   }
 
@@ -452,7 +508,7 @@ export default function CreateAssignmentPage() {
                       Drag file here or <span className="text-brand-orange hover:underline">browse</span>
                     </p>
                     <p className="text-[9px] text-brand-secondary">
-                      Supports PDF, TXT, PNG, JPG (Max 5MB)
+                      Supports PDF, TXT, PNG, JPG (Max 10MB)
                     </p>
                   </label>
                 )}
@@ -495,8 +551,12 @@ export default function CreateAssignmentPage() {
                         >
                           <option value="MCQ">Multiple Choice (MCQ)</option>
                           <option value="Short Answer">Short Answer</option>
-                          <option value="Long Answer">Long Answer / Essay</option>
+                          <option value="Long Answer">Long Answer</option>
                           <option value="True/False">True / False</option>
+                          <option value="Fill in the Blanks">Fill in the Blanks</option>
+                          <option value="Diagram/Graph-Based Questions">Diagram/Graph-Based Questions</option>
+                          <option value="Numerical Problems">Numerical Problems</option>
+                          <option value="Essay Questions">Essay Questions</option>
                         </select>
                       </td>
 
@@ -574,14 +634,21 @@ export default function CreateAssignmentPage() {
 
           {/* Voice Input Textarea */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                Exam Outline & Specific Instructions
-              </label>
+            <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+              Exam Outline & Specific Instructions
+            </label>
+            <div className="relative">
+              <textarea
+                value={formData.voicePrompt}
+                onChange={(e) => setFormData({ voicePrompt: e.target.value })}
+                placeholder="e.g. Create a biology quiz focused on Cell Division and Mitochondria. Include practical questions on chromosome counts during mitosis..."
+                rows={4}
+                className="w-full p-3.5 pr-32 bg-gray-55 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 resize-none"
+              />
               <button
                 type="button"
                 onClick={startSpeechRecognition}
-                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                className={`absolute bottom-3 right-3 flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
                   isListening
                     ? "bg-red-50 text-red-500 border-red-200 animate-pulse"
                     : "bg-orange-50 text-brand-orange border-orange-200 hover:bg-orange-100"
@@ -600,14 +667,6 @@ export default function CreateAssignmentPage() {
                 )}
               </button>
             </div>
-
-            <textarea
-              value={formData.voicePrompt}
-              onChange={(e) => setFormData({ voicePrompt: e.target.value })}
-              placeholder="e.g. Create a biology quiz focused on Cell Division and Mitochondria. Include practical questions on chromosome counts during mitosis..."
-              rows={4}
-              className="w-full p-3.5 bg-gray-55 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20"
-            />
           </div>
 
           {/* Nav buttons */}
@@ -626,188 +685,193 @@ export default function CreateAssignmentPage() {
       ) : (
         /* STEP 2 FORM */
         <div className="p-6 md:p-8 space-y-6">
-          
-          {/* Prefill School, Class, Subject */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Subject Select */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                Subject
-              </label>
-              <select
-                value={formData.subject}
-                onChange={(e) => setFormData({ subject: e.target.value })}
-                className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
-              >
-                <option value="">-- Choose Subject --</option>
-                <option value="Science">Science (Biology/Physics)</option>
-                <option value="Mathematics">Mathematics</option>
-                <option value="English">English Literature</option>
-                <option value="History">History & Social Studies</option>
-                <option value="Geography">Geography</option>
-              </select>
-            </div>
-
-            {/* Class Grade Select */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                Class / Grade
-              </label>
-              <select
-                value={formData.grade}
-                onChange={(e) => setFormData({ grade: e.target.value })}
-                className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
-              >
-                <option value="">-- Choose Grade --</option>
-                <option value="Class 8">Class 8</option>
-                <option value="Grade 9">Grade 9</option>
-                <option value="Class 10">Class 10</option>
-                <option value="Grade 11">Grade 11</option>
-                <option value="Grade 12">Grade 12</option>
-              </select>
-            </div>
-
-            {/* School Name Prefill */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
-                <School className="w-3.5 h-3.5 text-gray-400" />
-                <span>School Name Prefill</span>
-              </label>
-              <input
-                type="text"
-                value={formData.schoolName}
-                onChange={(e) => setFormData({ schoolName: e.target.value })}
-                className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-semibold"
-                placeholder="Veda International School"
-              />
-            </div>
-          </div>
-
-          {/* Time Limit Allowed */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
-                <Clock className="w-3.5 h-3.5 text-gray-400" />
-                <span>Time Allowed (Minutes)</span>
-              </label>
-              <div className="flex items-center space-x-3">
-                <input
-                  type="range"
-                  min="15"
-                  max="180"
-                  step="15"
-                  value={formData.timeAllowed}
-                  onChange={(e) => setFormData({ timeAllowed: parseInt(e.target.value) })}
-                  className="flex-1 accent-brand-orange"
-                />
-                <span className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-center text-sm font-bold text-brand-dark bg-gray-50">
-                  {formData.timeAllowed} min
-                </span>
-              </div>
-            </div>
-
-            {/* Answer Key Toggle Switch */}
-            <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-150 rounded-xl">
-              <div className="space-y-0.5">
-                <p className="text-xs font-bold text-brand-dark">Include Complete Answer Key</p>
-                <p className="text-[10px] text-brand-secondary">Generate reference explanations for grading.</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.includeAnswerKey}
-                  onChange={(e) => setFormData({ includeAnswerKey: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-orange"></div>
-              </label>
-            </div>
-          </div>
-
-          {/* Difficulty Sliders Auto-Balancing */}
-          <div className="space-y-4 p-4 border border-gray-150 rounded-xl bg-white shadow-sm">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider block">
-                Difficulty Balance
-              </label>
-              <div className="text-xs font-semibold text-brand-orange bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full">
-                Sum: {formData.difficulty.easy + formData.difficulty.moderate + formData.difficulty.hard}%
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {/* Easy Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-green-600">Easy Questions</span>
-                  <span className="font-bold text-brand-dark">{formData.difficulty.easy}%</span>
+          {loadingSettings ? (
+            <Step2SettingsSkeleton />
+          ) : (
+            <>
+              {/* Prefill School, Class, Subject */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Subject Select */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                    Subject
+                  </label>
+                  <select
+                    value={formData.subject}
+                    onChange={(e) => setFormData({ subject: e.target.value })}
+                    className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
+                  >
+                    <option value="">-- Choose Subject --</option>
+                    <option value="Science">Science (Biology/Physics)</option>
+                    <option value="Mathematics">Mathematics</option>
+                    <option value="English">English Literature</option>
+                    <option value="History">History & Social Studies</option>
+                    <option value="Geography">Geography</option>
+                  </select>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formData.difficulty.easy}
-                  onChange={(e) => handleDifficultyChange("easy", parseInt(e.target.value))}
-                  className="w-full accent-green-500"
-                />
-              </div>
 
-              {/* Moderate Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-amber-500">Moderate Questions</span>
-                  <span className="font-bold text-brand-dark">{formData.difficulty.moderate}%</span>
+                {/* Class Grade Select */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                    Class / Grade
+                  </label>
+                  <select
+                    value={formData.grade}
+                    onChange={(e) => setFormData({ grade: e.target.value })}
+                    className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
+                  >
+                    <option value="">-- Choose Grade --</option>
+                    <option value="Class 8">Class 8</option>
+                    <option value="Grade 9">Grade 9</option>
+                    <option value="Class 10">Class 10</option>
+                    <option value="Grade 11">Grade 11</option>
+                    <option value="Grade 12">Grade 12</option>
+                  </select>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formData.difficulty.moderate}
-                  onChange={(e) => handleDifficultyChange("moderate", parseInt(e.target.value))}
-                  className="w-full accent-amber-500"
-                />
-              </div>
 
-              {/* Hard Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-red-500">Hard Questions</span>
-                  <span className="font-bold text-brand-dark">{formData.difficulty.hard}%</span>
+                {/* School Name Prefill */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
+                    <School className="w-3.5 h-3.5 text-gray-400" />
+                    <span>School Name Prefill</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.schoolName}
+                    onChange={(e) => setFormData({ schoolName: e.target.value })}
+                    className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-semibold"
+                    placeholder="Veda International School"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formData.difficulty.hard}
-                  onChange={(e) => handleDifficultyChange("hard", parseInt(e.target.value))}
-                  className="w-full accent-red-500"
-                />
               </div>
-            </div>
-          </div>
 
-          {/* Action Row */}
-          <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-            <button
-              type="button"
-              onClick={() => setActiveStep(1)}
-              className="px-4 py-2 border border-gray-250 hover:bg-gray-50 text-brand-dark font-semibold rounded-lg text-sm flex items-center space-x-1.5 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to Step 1</span>
-            </button>
+              {/* Time Limit Allowed */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
+                    <Clock className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Time Allowed (Minutes)</span>
+                  </label>
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="range"
+                      min="15"
+                      max="180"
+                      step="15"
+                      value={formData.timeAllowed}
+                      onChange={(e) => setFormData({ timeAllowed: parseInt(e.target.value) })}
+                      className="flex-1 accent-brand-orange"
+                    />
+                    <span className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-center text-sm font-bold text-brand-dark bg-gray-50">
+                      {formData.timeAllowed} min
+                    </span>
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              onClick={handleSubmit}
-              className="px-6 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] hover:brightness-105 active:scale-95 text-white font-bold rounded-lg text-sm flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/10"
-            >
-              <Sparkles className="w-4.5 h-4.5" />
-              <span>Generate Assessment</span>
-            </button>
-          </div>
+                {/* Answer Key Toggle Switch */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-150 rounded-xl">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-brand-dark">Include Complete Answer Key</p>
+                    <p className="text-[10px] text-brand-secondary">Generate reference explanations for grading.</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.includeAnswerKey}
+                      onChange={(e) => setFormData({ includeAnswerKey: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-orange"></div>
+                  </label>
+                </div>
+              </div>
 
+              {/* Difficulty Sliders Auto-Balancing */}
+              <div className="space-y-4 p-4 border border-gray-150 rounded-xl bg-white shadow-sm">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider block">
+                    Difficulty Balance
+                  </label>
+                  <div className="text-xs font-semibold text-brand-orange bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full">
+                    Sum: {formData.difficulty.easy + formData.difficulty.medium + formData.difficulty.hard}%
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Easy Slider */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-green-600">Easy Questions</span>
+                      <span className="font-bold text-brand-dark">{formData.difficulty.easy}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={formData.difficulty.easy}
+                      onChange={(e) => handleDifficultyChange("easy", parseInt(e.target.value))}
+                      className="w-full accent-green-500"
+                    />
+                  </div>
+
+                  {/* Medium Slider */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-amber-500">Medium Questions</span>
+                      <span className="font-bold text-brand-dark">{formData.difficulty.medium}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={formData.difficulty.medium}
+                      onChange={(e) => handleDifficultyChange("medium", parseInt(e.target.value))}
+                      className="w-full accent-amber-500"
+                    />
+                  </div>
+
+                  {/* Hard Slider */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-red-500">Hard Questions</span>
+                      <span className="font-bold text-brand-dark">{formData.difficulty.hard}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={formData.difficulty.hard}
+                      onChange={(e) => handleDifficultyChange("hard", parseInt(e.target.value))}
+                      className="w-full accent-red-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Row */}
+              <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveStep(1)}
+                  className="px-4 py-2 border border-gray-250 hover:bg-gray-50 text-brand-dark font-semibold rounded-lg text-sm flex items-center space-x-1.5 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back to Step 1</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  className="px-6 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] hover:brightness-105 active:scale-95 text-white font-bold rounded-lg text-sm flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/10"
+                >
+                  <Sparkles className="w-4.5 h-4.5" />
+                  <span>Generate Assessment</span>
+                  <span className="shortcut-hint" style={{ fontSize: '11px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '4px', padding: '2px 5px', color: '#FFF', marginLeft: '8px', opacity: 0.9 }}>Ctrl+G</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

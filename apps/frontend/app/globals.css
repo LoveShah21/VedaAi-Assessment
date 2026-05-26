@@ -23,3 +23,31 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #9CA3AF;
 }
+
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
+}
+
+/* Background classes for avatar coloring */
+.avatar-bg-0 { background-color: #fee2e2; color: #b91c1c; }
+.avatar-bg-1 { background-color: #dbeafe; color: #1d4ed8; }
+.avatar-bg-2 { background-color: #dcfce7; color: #15803d; }
+.avatar-bg-3 { background-color: #f3e8ff; color: #6b21a8; }
+.avatar-bg-4 { background-color: #fef3c7; color: #b45309; }
+
+

@@ -18,7 +18,7 @@ export interface AssignmentFormData {
   timeAllowed: number;
   difficulty: {
     easy: number;
-    moderate: number;
+    medium: number;
     hard: number;
   };
   includeAnswerKey: boolean;
@@ -57,12 +57,13 @@ export interface Assignment {
   timeAllowed: number;
   difficulty: {
     easy: number;
-    moderate: number;
+    medium: number;
     hard: number;
   };
   questions: Question[];
   includeAnswerKey: boolean;
   version: number;
+  status?: string;
   versionHistory?: {
     version: number;
     timestamp: string;
@@ -102,7 +103,7 @@ const initialFormData: AssignmentFormData = {
   timeAllowed: 60,
   difficulty: {
     easy: 50,
-    moderate: 30,
+    medium: 30,
     hard: 20,
   },
   includeAnswerKey: true,

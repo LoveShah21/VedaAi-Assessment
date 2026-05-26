@@ -1,186 +1,107 @@
+// apps/backend/src/services/pdfService.ts
 import puppeteer from 'puppeteer';
-import path from 'path';
-import fs from 'fs';
-import { env } from '../config/env';
+import { IResult } from '../models/Result';
 import { IAssignment } from '../models/Assignment';
-import { IQuestion } from '../models/Result';
 
-export const generateAssessmentPDF = async (
-  assignment: IAssignment,
-  questions: IQuestion[]
-): Promise<string> => {
-  const htmlContent = `
-<!DOCTYPE html>
+function difficultyBadge(difficulty: string): string {
+  const styles: Record<string, string> = {
+    Easy: 'background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;',
+    Moderate: 'background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;',
+    Hard: 'background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;',
+  };
+  return `<span style="${styles[difficulty] ?? styles['Easy']}">${difficulty}</span>`;
+}
+
+function buildHtml(result: IResult, assignment: IAssignment, includeAnswerKey: boolean): string {
+  const sectionsHtml = result.sections
+    .map(
+      (section) => `
+      <div style="margin-bottom:24px;">
+        <h2 style="text-align:center;font-size:16px;font-weight:700;margin-bottom:4px;">${section.title}</h2>
+        <p style="font-weight:700;margin-bottom:2px;">${section.questionType}</p>
+        <p style="font-style:italic;margin-bottom:12px;font-size:13px;">${section.instruction}</p>
+        ${section.questions
+          .map(
+            (q) => `
+          <p style="margin-bottom:10px;font-size:13px;">
+            <strong>${q.number}.</strong> ${difficultyBadge(q.difficulty)} ${q.text}
+            <span style="float:right;font-weight:600;">[${q.marks} Mark${q.marks > 1 ? 's' : ''}]</span>
+          </p>`
+          )
+          .join('')}
+      </div>`
+    )
+    .join('');
+
+  const answerKeyHtml = includeAnswerKey
+    ? `<div style="margin-top:32px;border-top:2px solid #1A1A1A;padding-top:16px;">
+        <h2 style="font-weight:700;font-size:16px;margin-bottom:12px;">Answer Key:</h2>
+        ${result.sections
+          .map((s) =>
+            s.questions
+              .map((q) => `<p style="font-size:13px;margin-bottom:6px;"><strong>${q.number}.</strong> ${q.answer}</p>`)
+              .join('')
+          )
+          .join('')}
+       </div>`
+    : '';
+
+  return `<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>${assignment.title}</title>
+  <meta charset="UTF-8">
   <style>
-    body {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      color: #333;
-      line-height: 1.5;
-      margin: 0;
-      padding: 0;
-    }
-    .header-container {
-      border-bottom: 2px solid #333;
-      padding-bottom: 10px;
-      margin-bottom: 30px;
-    }
-    .title {
-      font-size: 24px;
-      font-weight: bold;
-      text-transform: uppercase;
-      margin: 0 0 10px 0;
-      color: #111;
-    }
-    .meta-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      font-size: 14px;
-    }
-    .meta-item {
-      margin-bottom: 4px;
-    }
-    .meta-label {
-      font-weight: bold;
-      color: #555;
-    }
-    .question-list {
-      margin-top: 20px;
-    }
-    .question-item {
-      margin-bottom: 25px;
-      page-break-inside: avoid;
-    }
-    .question-header {
-      font-weight: bold;
-      font-size: 16px;
-      margin-bottom: 8px;
-    }
-    .options-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-left: 20px;
-      margin-bottom: 10px;
-    }
-    .option-item {
-      font-size: 14px;
-    }
-    .answer-key-section {
-      page-break-before: always;
-      margin-top: 40px;
-      border-top: 2px dashed #999;
-      padding-top: 20px;
-    }
-    .answer-title {
-      font-size: 20px;
-      font-weight: bold;
-      margin-bottom: 20px;
-    }
-    .answer-item {
-      margin-bottom: 15px;
-      page-break-inside: avoid;
-    }
-    .explanation {
-      font-style: italic;
-      color: #666;
-      font-size: 13px;
-      margin-top: 4px;
-    }
-    @media print {
-      body {
-        -webkit-print-color-adjust: exact;
-      }
-      .question-item {
-        page-break-inside: avoid;
-      }
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Times New Roman', serif; font-size: 14px; color: #000; }
+    .clearfix::after { content: ''; display: table; clear: both; }
   </style>
 </head>
-<body>
-  <div class="header-container">
-    <h1 class="title">${assignment.title}</h1>
-    <div class="meta-grid">
-      <div class="meta-item"><span class="meta-label">Subject:</span> ${assignment.subject}</div>
-      <div class="meta-item"><span class="meta-label">Grade Level:</span> ${assignment.gradeLevel}</div>
-      <div class="meta-item"><span class="meta-label">Topic:</span> ${assignment.topic}</div>
-      <div class="meta-item"><span class="meta-label">Difficulty:</span> ${assignment.difficulty}</div>
-      <div class="meta-item"><span class="meta-label">Questions:</span> ${assignment.numberOfQuestions}</div>
-      <div class="meta-item"><span class="meta-label">Date:</span> ${new Date().toLocaleDateString()}</div>
-    </div>
+<body style="padding: 40px;">
+  <div style="text-align:center;margin-bottom:20px;">
+    <h1 style="font-size:20px;font-weight:700;">${assignment.schoolName}</h1>
+    <p style="font-size:14px;margin-top:4px;">Subject: ${assignment.subject}</p>
+    <p style="font-size:14px;">Class: ${assignment.className}</p>
   </div>
 
-  <div class="question-list">
-    ${questions
-      .map(
-        (q, index) => `
-      <div class="question-item">
-        <div class="question-header">Q${index + 1}. ${q.questionText}</div>
-        ${
-          q.options && q.options.length > 0
-            ? `
-          <div class="options-grid">
-            ${q.options.map((opt) => `<div class="option-item">${opt}</div>`).join('')}
-          </div>
-        `
-            : ''
-        }
-      </div>
-    `
-      )
-      .join('')}
+  <div class="clearfix" style="margin-bottom:12px;">
+    <span style="float:left;">Time Allowed: ${assignment.timeAllowed} minutes</span>
+    <span style="float:right;">Maximum Marks: ${result.totalMarks}</span>
   </div>
 
-  <div class="answer-key-section">
-    <h2 class="answer-title">Answer Key & Explanations</h2>
-    ${questions
-      .map(
-        (q, index) => `
-      <div class="answer-item">
-        <div><strong>Q${index + 1}. Correct Answer:</strong> ${q.correctAnswer || 'N/A'}</div>
-        ${q.explanation ? `<div class="explanation"><strong>Explanation:</strong> ${q.explanation}</div>` : ''}
-      </div>
-    `
-      )
-      .join('')}
+  <p style="font-weight:700;margin-bottom:16px;">All questions are compulsory unless stated otherwise.</p>
+
+  <div style="margin-bottom:20px;border-top:1px solid #000;padding-top:12px;">
+    <p style="margin-bottom:8px;">Name: _______________________________________________</p>
+    <p style="margin-bottom:8px;">Roll Number: _______________________________________</p>
+    <p>Class: ${assignment.className} &nbsp;&nbsp; Section: ________________</p>
   </div>
+
+  <hr style="border:1px solid #000;margin-bottom:20px;">
+
+  ${sectionsHtml}
+
+  <p style="text-align:center;font-weight:700;margin-top:32px;border-top:1px solid #000;padding-top:16px;">
+    — End of Question Paper —
+  </p>
+
+  ${answerKeyHtml}
+
+  <p style="font-size:10px;color:#666;text-align:center;margin-top:24px;border-top:1px solid #ddd;padding-top:8px;">
+    Generated by VedaAI &bull; OpenCode Zen &bull; ${new Date(result.generatedAt).toLocaleString()} &bull; Version ${result.version}
+  </p>
 </body>
-</html>
-  `;
+</html>`;
+}
 
-  const uploadDir = path.resolve(env.UPLOAD_DIR);
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  const filename = `assessment-${assignment._id}.pdf`;
-  const outputPath = path.join(uploadDir, filename);
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-
-  try {
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-    await page.pdf({
-      path: outputPath,
-      format: 'A4',
-      margin: {
-        top: '20mm',
-        bottom: '20mm',
-        left: '20mm',
-        right: '20mm',
-      },
-      printBackground: true,
-    });
-    return filename;
-  } finally {
-    await browser.close();
-  }
-};
+export async function generatePdf(
+  result: IResult,
+  assignment: IAssignment,
+  includeAnswerKey: boolean
+): Promise<Buffer> {
+  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const page = await browser.newPage();
+  await page.setContent(buildHtml(result, assignment, includeAnswerKey), { waitUntil: 'networkidle0' });
+  const pdf = await page.pdf({ format: 'A4', margin: { top: '2cm', right: '2cm', bottom: '2cm', left: '2cm' }, printBackground: true });
+  await browser.close();
+  return Buffer.from(pdf);
+}

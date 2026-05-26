@@ -46,6 +46,7 @@ const QuestionSchema = new mongoose_1.Schema({
 const ResultSchema = new mongoose_1.Schema({
     assignmentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Assignment', required: true, unique: true },
     questions: { type: [QuestionSchema], required: true },
+    totalQuestions: { type: Number, required: true, default: 0 },
     pdfUrl: { type: String },
 }, { timestamps: true });
 exports.Result = mongoose_1.default.model('Result', ResultSchema);

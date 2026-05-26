@@ -5,6 +5,7 @@ const bullmq_1 = require("bullmq");
 const redis_1 = require("../config/redis");
 const Assignment_1 = require("../models/Assignment");
 const Result_1 = require("../models/Result");
+const Activity_1 = require("../models/Activity");
 const aiService_1 = require("../services/aiService");
 const pdfService_1 = require("../services/pdfService");
 const cacheService_1 = require("../services/cacheService");
@@ -23,7 +24,7 @@ const initGenerationWorker = () => {
             await assignment.save();
             (0, socketManager_1.emitToAssignment)(assignmentId, 'job:processing', { assignmentId });
             // Invalidate list cache
-            await cacheService_1.cacheService.del('assignments:list');
+            await cacheService_1.cacheService.delPattern('assignments:list:*');
             // 2. Generate questions using AI
             const questions = await (0, aiService_1.generateQuestions)({
                 subject: assignment.subject,
@@ -40,10 +41,12 @@ const initGenerationWorker = () => {
                 result = new Result_1.Result({
                     assignmentId: assignment._id,
                     questions,
+                    totalQuestions: questions.length,
                 });
             }
             else {
                 result.questions = questions;
+                result.totalQuestions = questions.length;
             }
             // 4. Generate A4 PDF
             const pdfFilename = await (0, pdfService_1.generateAssessmentPDF)(assignment, questions);
@@ -52,6 +55,19 @@ const initGenerationWorker = () => {
             // 5. Update assignment status to completed
             assignment.status = 'completed';
             await assignment.save();
+            // Create activity log for paper generation completion
+            const activity = new Activity_1.Activity({
+                type: 'paper_generated',
+                assignmentId: assignment._id,
+                assignmentTitle: assignment.title,
+                metadata: {
+                    subject: assignment.subject,
+                    gradeLevel: assignment.gradeLevel,
+                    topic: assignment.topic,
+                    numberOfQuestions: questions.length,
+                },
+            });
+            await activity.save();
             const responsePayload = {
                 assignment,
                 result,
@@ -60,7 +76,7 @@ const initGenerationWorker = () => {
             await cacheService_1.cacheService.set(`result:${assignmentId}`, JSON.stringify(responsePayload), 3600 // 1 hour TTL
             );
             // Invalidate lists again to ensure status is up to date
-            await cacheService_1.cacheService.del('assignments:list');
+            await cacheService_1.cacheService.delPattern('assignments:list:*');
             // 6. Emit completion event
             (0, socketManager_1.emitToAssignment)(assignmentId, 'job:completed', responsePayload);
             console.log(`👷 Worker: Successfully completed assignment: ${assignmentId}`);
@@ -73,7 +89,7 @@ const initGenerationWorker = () => {
             assignment.error = error.message || 'Unknown generation error';
             await assignment.save();
             // Invalidate list cache
-            await cacheService_1.cacheService.del('assignments:list');
+            await cacheService_1.cacheService.delPattern('assignments:list:*');
             // Emit failure event
             (0, socketManager_1.emitToAssignment)(assignmentId, 'job:failed', {
                 assignmentId,

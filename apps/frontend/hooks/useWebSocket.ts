@@ -56,7 +56,7 @@ export function useWebSocket() {
             dueDate: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split('T')[0],
             assignedDate: new Date().toLocaleDateString(),
             timeAllowed: 60,
-            difficulty: { easy: 40, moderate: 40, hard: 20 },
+            difficulty: { easy: 40, medium: 40, hard: 20 },
             includeAnswerKey: true,
             version: 1,
             versionHistory: [
@@ -158,7 +158,7 @@ export function useWebSocket() {
             dueDate: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split('T')[0],
             assignedDate: new Date().toLocaleDateString(),
             timeAllowed: 45,
-            difficulty: { easy: 50, moderate: 30, hard: 20 },
+            difficulty: { easy: 50, medium: 30, hard: 20 },
             includeAnswerKey: true,
             version: 1,
             versionHistory: [{ version: 1, timestamp: new Date().toLocaleString(), questionsCount: 3 }],

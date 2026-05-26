@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import ToastContainer from "./ToastContainer";
@@ -9,9 +10,21 @@ import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
 
   // Set up background Socket.IO listeners
   useWebSocket();
+
+  const isPreviewPage = pathname.match(/^\/assignments\/[^\/]+\/preview$/);
+
+  if (isPreviewPage) {
+    return (
+      <div className="min-h-screen bg-white text-[#1A1A1A] font-sans">
+        {children}
+        <ToastContainer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-brand-bg text-[#1A1A1A] flex font-sans">

@@ -10,7 +10,12 @@ import { redisClient } from './config/redis';
 import { initSocket } from './socket/socketManager';
 import { initGenerationWorker } from './workers/generationWorker';
 import assignmentRoutes from './routes/assignmentRoutes';
+import groupRoutes from './routes/groupRoutes';
+import settingsRoutes from './routes/settingsRoutes';
+import activityRoutes from './routes/activityRoutes';
+import resultRoutes from './routes/resultRoutes';
 import { errorHandler } from './middlewares/errorHandler';
+import { getAssignmentStats } from './controllers/assignmentController';
 
 const app = express();
 const server = http.createServer(app);
@@ -47,6 +52,11 @@ app.use('/uploads', express.static(uploadDir));
 
 // Routes
 app.use('/api/assignments', assignmentRoutes);
+app.use('/api/groups', groupRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/results', resultRoutes);
+app.get('/api/stats', getAssignmentStats);
 
 // Base route for health check
 app.get('/health', (req, res) => {

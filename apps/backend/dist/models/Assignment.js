@@ -50,5 +50,11 @@ const AssignmentSchema = new mongoose_1.Schema({
     },
     error: { type: String },
     sourceMaterial: { type: String },
+    deleted: { type: Boolean, default: false },
+    schoolName: { type: String },
+    timeAllowed: { type: Number },
+    includeAnswerKey: { type: Boolean, default: true },
+    questionRows: { type: mongoose_1.Schema.Types.Mixed },
+    grade: { type: String },
 }, { timestamps: true });
 exports.Assignment = mongoose_1.default.model('Assignment', AssignmentSchema);

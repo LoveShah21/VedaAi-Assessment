@@ -1,23 +1,41 @@
+// apps/backend/src/validators/assignmentValidator.ts
 import { z } from 'zod';
 
+const createSchema = z.object({
+  subject: z.string().min(1, 'Subject is required'),
+  className: z.string().min(1, 'Class is required'),
+  schoolName: z.string().min(1, 'School name is required'),
+  timeAllowed: z.coerce.number().min(15, 'Minimum time is 15 minutes').max(240, 'Maximum time is 240 minutes'),
+  dueDate: z.string().min(1, 'Due date is required'),
+  questionTypes: z
+    .array(
+      z.object({
+        type: z.string().min(1),
+        count: z.coerce.number().min(1, 'Minimum count is 1').max(50, 'Maximum count is 50'),
+        marksPerQuestion: z.coerce.number().min(1, 'Minimum marks is 1').max(20, 'Maximum marks is 20'),
+      })
+    )
+    .min(1, 'At least one question type is required'),
+  difficultyDistribution: z
+    .object({
+      easy: z.coerce.number(),
+      medium: z.coerce.number(),
+      hard: z.coerce.number(),
+    })
+    .refine((d) => d.easy + d.medium + d.hard === 100, 'Difficulty distribution must sum to 100'),
+  additionalInstructions: z.string().optional().default(''),
+  includeAnswerKey: z.boolean().optional().default(false),
+  formData: z.any().optional(),
+  voicePrompt: z.string().optional(),
+});
+
 export const createAssignmentSchema = z.object({
-  body: z.object({
-    title: z.string({ required_error: 'Title is required' }).min(3, 'Title must be at least 3 characters').max(100),
-    subject: z.string({ required_error: 'Subject is required' }).min(2, 'Subject must be at least 2 characters'),
-    gradeLevel: z.string({ required_error: 'Grade level is required' }).min(1, 'Grade level is required'),
-    topic: z.string({ required_error: 'Topic is required' }).min(2, 'Topic must be at least 2 characters'),
-    difficulty: z.enum(['easy', 'medium', 'hard'], {
-      required_error: 'Difficulty must be easy, medium, or hard',
-    }),
-    numberOfQuestions: z.preprocess(
-      (val) => (typeof val === 'string' ? parseInt(val, 10) : val),
-      z.number({ required_error: 'Number of questions is required' }).min(1, 'At least 1 question is required').max(100, 'Maximum of 100 questions')
-    ),
-    questionType: z.enum(['mcq', 'short', 'long', 'mixed'], {
-      required_error: 'Question type must be mcq, short, long, or mixed',
-    }),
-    sourceMaterial: z.string().optional(),
-  }),
+  body: z.union([
+    createSchema,
+    z.object({
+      formData: createSchema,
+    })
+  ])
 });
 
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
