@@ -6,37 +6,41 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.redisClient = exports.redisConnectionOptions = void 0;
 const ioredis_1 = __importDefault(require("ioredis"));
 const env_1 = require("./env");
-let connectionConfig = {
-    host: '127.0.0.1',
-    port: 6379,
-};
+// Single source of truth — fall back to local Redis if env var is absent
+const REDIS_URL = env_1.env.REDIS_URL || 'redis://localhost:6379';
+const isTLS = REDIS_URL.startsWith('rediss://');
+// Parse the URL once for BullMQ (which needs a structured object, not a raw URL)
+let parsedUrl;
 try {
-    const url = new URL(env_1.env.REDIS_URL);
-    connectionConfig = {
-        host: url.hostname || '127.0.0.1',
-        port: url.port ? parseInt(url.port, 10) : 6379,
-        password: url.password ? decodeURIComponent(url.password) : undefined,
-    };
+    parsedUrl = new URL(REDIS_URL);
 }
-catch (e) {
-    const parts = env_1.env.REDIS_URL.replace('redis://', '').split(':');
-    if (parts.length === 2) {
-        connectionConfig = {
-            host: parts[0],
-            port: parseInt(parts[1], 10),
-        };
-    }
+catch {
+    parsedUrl = new URL('redis://localhost:6379');
 }
-exports.redisConnectionOptions = {
-    ...connectionConfig,
+// Shared options applied to every Redis instance
+const sharedOptions = {
     maxRetriesPerRequest: null, // Required by BullMQ
+    enableReadyCheck: false, // Upstash doesn't support CLIENT LIST
+    retryStrategy: (times) => Math.min(times * 200, 10000),
+    keepAlive: 10000, // Prevent idle-connection drops on Upstash
+    ...(isTLS ? { tls: { rejectUnauthorized: true } } : {}),
 };
-exports.redisClient = new ioredis_1.default(env_1.env.REDIS_URL, {
-    maxRetriesPerRequest: null, // Required by BullMQ
-});
+// BullMQ connection — must be a structured object (host / port / password)
+exports.redisConnectionOptions = {
+    host: parsedUrl.hostname || 'localhost',
+    port: parsedUrl.port ? parseInt(parsedUrl.port, 10) : 6379,
+    password: parsedUrl.password ? decodeURIComponent(parsedUrl.password) : undefined,
+    username: parsedUrl.username ? decodeURIComponent(parsedUrl.username) : undefined,
+    ...sharedOptions,
+};
+// General-purpose ioredis client — uses raw URL (supports all schemes cleanly)
+exports.redisClient = new ioredis_1.default(REDIS_URL, sharedOptions);
 exports.redisClient.on('connect', () => {
     console.log('📡 Redis Connected successfully');
 });
 exports.redisClient.on('error', (err) => {
-    console.error('❌ Redis Error:', err);
+    // EPIPE / ECONNRESET are transient reconnect events — ioredis handles them automatically
+    if (err.code === 'EPIPE' || err.code === 'ECONNRESET')
+        return;
+    console.error('❌ Redis Error:', err.message);
 });
