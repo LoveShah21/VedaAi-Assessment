@@ -162,7 +162,14 @@ export async function generatePdf(
   includeAnswerKey: boolean
 ): Promise<Buffer> {
   const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',   // Use /tmp instead of /dev/shm (Docker has 64MB limit)
+      '--disable-gpu',             // No GPU process needed in containers
+      '--no-zygote',               // Reduces process spawning overhead
+      '--single-process',          // Single process mode — lower memory, acceptable for PDF gen
+    ],
     headless: true,
   });
   const page = await browser.newPage();
