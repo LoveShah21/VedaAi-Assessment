@@ -174,7 +174,7 @@ export async function generatePdf(
   });
   const page = await browser.newPage();
   await page.setContent(buildHtml(result, assignment, includeAnswerKey), {
-    waitUntil: 'networkidle0',
+    waitUntil: 'domcontentloaded',
   });
   // @page CSS inside the HTML handles all margins — no extra margin here.
   const pdf = await page.pdf({
