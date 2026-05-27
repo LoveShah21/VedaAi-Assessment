@@ -9,15 +9,21 @@ RUN apk add --no-cache \
       ca-certificates \
       ttf-freefont
 
-# Tell Puppeteer to use the system-installed Chromium
+# Tell Puppeteer to use the system-installed Chromium, set node memory limits
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    NODE_ENV=production
+    NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=450"
 
 WORKDIR /usr/src/app
 
 COPY package.json ./
-RUN npm install --legacy-peer-deps
+
+# Optimize npm to use minimal memory and prevent OOM on Render Free tier
+RUN npm config set progress false && \
+    npm config set maxsockets 1 && \
+    npm install --legacy-peer-deps --no-audit --no-fund && \
+    npm cache clean --force
 
 COPY . .
 RUN npm run build
