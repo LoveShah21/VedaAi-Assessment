@@ -2,6 +2,33 @@ import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAssignmentStore, Assignment } from "../store/useAssignmentStore";
 import { useRouter } from "next/navigation";
+import axios from "axios";
+
+// Helper to map backend assignment structure to frontend structure
+const mapBackendAssignmentToFrontend = (backendAss: any): Assignment => {
+  return {
+    id: backendAss._id,
+    title: backendAss.title,
+    subject: backendAss.subject,
+    grade: backendAss.className,
+    dueDate: new Date(backendAss.dueDate).toISOString().split('T')[0],
+    assignedDate: new Date(backendAss.createdAt).toLocaleDateString(),
+    schoolName: backendAss.schoolName,
+    timeAllowed: backendAss.timeAllowed,
+    difficulty: {
+      easy: backendAss.difficultyDistribution?.easy ?? 30,
+      medium: backendAss.difficultyDistribution?.medium ?? 50,
+      hard: backendAss.difficultyDistribution?.hard ?? 20,
+    },
+    questions: [], // Loaded from results on details page
+    includeAnswerKey: backendAss.includeAnswerKey,
+    version: backendAss.version || 1,
+    status: backendAss.status,
+    versionHistory: backendAss.versionHistory && backendAss.versionHistory.length > 0
+      ? backendAss.versionHistory
+      : [{ version: 1, timestamp: new Date(backendAss.createdAt).toLocaleString(), questionsCount: 0 }]
+  };
+};
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
@@ -23,8 +50,10 @@ export function useWebSocket() {
       return;
     }
 
-    // Check if simulation mode is active or backend is mocked
-    const shouldSimulate = process.env.NEXT_PUBLIC_SIMULATE === "true" || SOCKET_URL.includes("mock");
+    // Check if simulation mode is active or this is a client-side offline job
+    const shouldSimulate = process.env.NEXT_PUBLIC_SIMULATE === "true" || 
+                           SOCKET_URL.includes("mock") ||
+                           currentJob.id.startsWith("offline_");
 
     if (shouldSimulate) {
       console.log("Starting local socket simulation for job:", currentJob.id);
@@ -202,29 +231,63 @@ export function useWebSocket() {
       socketRef.current = null;
     });
 
-    socket.on("job:progress", (data: { jobId: string; progress: number; log?: string; status?: string; assignment?: Assignment }) => {
-      console.log("Socket.IO job:progress received:", data);
-      if (data.jobId !== currentJob.id) return;
-      
+    socket.on("job:queued", (data: { assignmentId: string; position: number }) => {
+      console.log("Socket: job:queued received:", data);
+      if (data.assignmentId !== currentJob.id) return;
+      updateJobProgress(10, `Queued on generator server (position: ${data.position})...`);
+    });
+
+    socket.on("job:processing", (data: { assignmentId: string; progress: number; log?: string }) => {
+      console.log("Socket: job:processing received:", data);
+      if (data.assignmentId !== currentJob.id) return;
+
+      let logMessage = "Generating assessment...";
       if (data.log) {
-        updateJobProgress(data.progress, data.log);
-      } else {
-        updateJobProgress(data.progress);
+        logMessage = data.log;
+      } else if (data.progress === 30) {
+        logMessage = "Reading files & parsing context documents...";
+      } else if (data.progress === 60) {
+        logMessage = "AI is drafting questions matching syllabus parameters...";
+      } else if (data.progress === 90) {
+        logMessage = "Synthesizing answer keys & validating marks distribution...";
       }
 
-      if (data.status === "completed") {
-        addToast("Assignment generated successfully!", "success");
-        if (data.assignment) {
-          addAssignment(data.assignment);
-          router.push(`/assignments/${data.assignment.id}`);
+      updateJobProgress(data.progress, logMessage);
+    });
+
+    socket.on("job:completed", (data: { assignmentId: string; resultId: string }) => {
+      console.log("Socket: job:completed received:", data);
+      if (data.assignmentId !== currentJob.id) return;
+
+      updateJobProgress(100, "Finalizing VedaAI assessment document...");
+
+      const fetchAndAdd = async () => {
+        try {
+          const res = await axios.get(`${SOCKET_URL}/api/assignments/${data.assignmentId}`);
+          if (res.data && res.data.assignment) {
+            const mapped = mapBackendAssignmentToFrontend(res.data.assignment);
+            addAssignment(mapped);
+            addToast("Assignment generated successfully!", "success");
+            setCurrentJob(null);
+            router.push(`/assignments/${mapped.id}`);
+          }
+        } catch (err) {
+          console.error("Failed to retrieve generated assignment details:", err);
+          addToast("Failed to retrieve generated assignment.", "error");
+          setCurrentJob({ status: "failed" });
         }
-        setCurrentJob(null);
-        socket.disconnect();
-      } else if (data.status === "failed") {
-        addToast("Generation failed. Please check inputs.", "error");
-        setCurrentJob({ status: "failed" });
-        socket.disconnect();
-      }
+      };
+      
+      fetchAndAdd();
+    });
+
+    socket.on("job:failed", (data: { assignmentId: string; error: string }) => {
+      console.log("Socket: job:failed received:", data);
+      if (data.assignmentId !== currentJob.id) return;
+      
+      addToast(`Generation failed: ${data.error}`, "error");
+      setCurrentJob({ status: "failed", logs: ["Error: " + data.error] });
+      socket.disconnect();
     });
 
     socket.on("disconnect", () => {

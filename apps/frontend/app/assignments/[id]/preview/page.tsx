@@ -6,7 +6,7 @@ import { Printer, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface PageProps {
   params: {
@@ -14,30 +14,93 @@ interface PageProps {
   };
 }
 
+const printStyles = `
+  @media print {
+    @page {
+      margin: 0;
+      size: A4 portrait;
+    }
+    body {
+      margin: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .no-print { display: none !important; }
+    .no-print-bg { background: white !important; padding: 0 !important; }
+    .print-container {
+      padding: 22mm 18mm !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+  }
+`;
+
 export default function PrintPreviewPage({ params }: PageProps) {
   const router = useRouter();
   const assignments = useAssignmentStore((state) => state.assignments);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [result, setResult] = useState<any | null>(null);
+  const [showAnswerKeys, setShowAnswerKeys] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchDetails = async () => {
-      // Check Zustand store first
       const local = assignments.find((a) => a.id === params.id);
-      if (local) {
-        setAssignment(local);
-        setLoading(false);
-        return;
-      }
+      let loadedAss = local || null;
 
-      // Query database fallback
       try {
-        const res = await axios.get(`${API_URL}/api/assignments/${params.id}`);
-        if (res.data) {
-          setAssignment(res.data);
+        if (!loadedAss) {
+          const res = await axios.get(`${API_URL}/api/assignments/${params.id}`);
+          if (res.data && res.data.assignment) {
+            const backendAss = res.data.assignment;
+            loadedAss = {
+              id: backendAss._id,
+              title: backendAss.title,
+              subject: backendAss.subject,
+              grade: backendAss.className,
+              dueDate: new Date(backendAss.dueDate).toISOString().split("T")[0],
+              assignedDate: new Date(backendAss.createdAt).toLocaleDateString(),
+              schoolName: backendAss.schoolName,
+              timeAllowed: backendAss.timeAllowed,
+              difficulty: {
+                easy: backendAss.difficultyDistribution?.easy ?? 30,
+                medium: backendAss.difficultyDistribution?.medium ?? 50,
+                hard: backendAss.difficultyDistribution?.hard ?? 20,
+              },
+              questions: [],
+              includeAnswerKey: backendAss.includeAnswerKey,
+              version: backendAss.version || 1,
+              status: backendAss.status,
+              versionHistory: backendAss.versionHistory || [],
+            };
+          }
+        }
+
+        if (loadedAss) {
+          setAssignment(loadedAss);
+
+          const urlParams = new URLSearchParams(window.location.search);
+          const versionParam = urlParams.get("version") || loadedAss.version || 1;
+          const includeAnswerKeyParam =
+            urlParams.get("includeAnswerKey") === "true" ||
+            urlParams.get("showAnswerKeys") === "true" ||
+            loadedAss.includeAnswerKey;
+
+          setShowAnswerKeys(includeAnswerKeyParam);
+
+          const resRes = await axios.get(
+            `${API_URL}/api/assignments/${params.id}/results?version=${versionParam}`
+          );
+          if (resRes.data) {
+            if (resRes.data.result) {
+              setResult(resRes.data.result);
+            } else {
+              setResult(resRes.data);
+            }
+          }
         }
       } catch (err) {
-        console.error("Could not load preview assignment:", err);
+        console.error("Could not load preview assignment or result:", err);
       } finally {
         setLoading(false);
       }
@@ -54,21 +117,39 @@ export default function PrintPreviewPage({ params }: PageProps) {
     );
   }
 
-  if (!assignment) {
+  if (!assignment || !result) {
     return (
-      <div className="p-8 text-center bg-gray-50 min-h-screen text-sm text-red-500 font-bold">
-        Assessment file not found.
+      <div className="p-8 text-center bg-gray-55 min-h-screen text-sm text-red-505 font-bold flex flex-col justify-center items-center space-y-4">
+        <span className="text-red-500 text-3xl">⚠️</span>
+        <p className="text-brand-dark">Assessment or questions file not found or still generating.</p>
+        <button
+          onClick={() => router.push(`/assignments`)}
+          className="px-4 py-2 bg-brand-orange text-white rounded-lg text-xs font-semibold"
+        >
+          Back to Assignments
+        </button>
       </div>
     );
   }
 
-  const maxMarks = assignment.questions?.reduce((sum, q) => sum + (q.marks || 0), 0) || 0;
+  const maxMarks = result.totalMarks || 0;
+
+  const handlePrint = () => {
+    const prevTitle = document.title;
+    document.title = " ";
+    window.print();
+    setTimeout(() => {
+      document.title = prevTitle;
+    }, 1500);
+  };
 
   return (
     <>
       <head>
         <meta name="robots" content="noindex, nofollow" />
         <title>Print Preview - {assignment.title}</title>
+        {/* eslint-disable-next-line react/no-danger */}
+        <style dangerouslySetInnerHTML={{ __html: printStyles }} />
       </head>
 
       {/* Floating Controller Panel (no-print) */}
@@ -82,11 +163,20 @@ export default function PrintPreviewPage({ params }: PageProps) {
         </button>
 
         <div className="flex items-center space-x-3">
-          <span className="text-xs text-brand-secondary font-medium">
-            Page layout: A4 Portrait • Prints without headers & sidebars
+          <label className="flex items-center space-x-1.5 text-xs font-semibold text-brand-dark cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showAnswerKeys}
+              onChange={(e) => setShowAnswerKeys(e.target.checked)}
+              className="rounded border-gray-300 text-brand-orange focus:ring-brand-orange"
+            />
+            <span>Print Answer Key</span>
+          </label>
+          <span className="text-xs text-brand-secondary font-medium border-l pl-3 border-gray-200">
+            A4 Portrait · No headers/footers
           </span>
           <button
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] hover:brightness-105 active:scale-95 text-white font-bold rounded-lg text-xs shadow-sm transition-all"
           >
             <Printer className="w-4 h-4" />
@@ -97,87 +187,118 @@ export default function PrintPreviewPage({ params }: PageProps) {
 
       {/* A4 Sheet Container */}
       <div className="bg-gray-100 min-h-screen py-8 px-4 no-print-bg">
-        <div className="print-container max-w-[800px] mx-auto bg-white border border-gray-200 shadow-md p-10 md:p-14 font-serif text-[#1A1A1A]">
-          
-          {/* School Header Layout */}
-          <div className="text-center space-y-2 border-b-2 border-black pb-4">
-            <h1 className="text-xl md:text-2xl font-bold uppercase tracking-wide">
+        <div className="print-container max-w-[800px] mx-auto bg-white shadow-md p-10 md:p-14 font-serif text-[#1A1A1A]">
+
+          {/* ===== PAPER HEADER — centered school info (matches reference) ===== */}
+          <div className="text-center mb-4">
+            <h1 className="text-xl md:text-2xl font-extrabold uppercase">
               {assignment.schoolName || "Veda International School"}
             </h1>
-            <h2 className="text-sm font-bold tracking-widest uppercase">
+            <p className="text-sm font-bold uppercase mt-1">
               {assignment.title}
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-semibold pt-2 text-left">
-              <div>Subject: <span className="underline">{assignment.subject}</span></div>
-              <div>Grade Level: <span className="underline">{assignment.grade}</span></div>
-              <div>Time Allowed: <span className="underline">{assignment.timeAllowed} minutes</span></div>
-              <div>Max Marks: <span className="underline">{maxMarks} Marks</span></div>
-            </div>
+            </p>
+            <p className="text-sm font-semibold mt-0.5">
+              {assignment.grade} &nbsp;|&nbsp; {assignment.subject}
+            </p>
           </div>
 
-          {/* Student details blanks */}
-          <div className="grid grid-cols-2 gap-4 py-4 text-xs font-semibold border-b border-black mb-8">
-            <div className="flex">
+          <hr className="border-t border-[#1A1A1A] mb-0" />
+
+          {/* ===== EXAM METADATA ROW ===== */}
+          <div className="flex justify-between items-center text-sm font-bold text-[#1A1A1A] py-2">
+            <span>Time Allowed: {assignment.timeAllowed} Minutes</span>
+            <span>Maximum Marks: {maxMarks} Marks</span>
+          </div>
+
+          <hr className="border-t border-[#1A1A1A] mb-3" />
+
+          {/* ===== GENERAL INSTRUCTIONS ===== */}
+          <p className="text-xs italic text-[#374151] mb-4">
+            General Instructions: Read all questions carefully. All questions are compulsory unless stated otherwise.
+          </p>
+
+          {/* ===== STUDENT DETAILS — plain text lines (matches reference) ===== */}
+          <div className="text-sm font-semibold text-[#1A1A1A] space-y-2 mb-8">
+            <div className="flex items-center gap-1">
               <span>Student Name:</span>
-              <div className="flex-1 border-b border-dashed border-black ml-2" />
+              <span className="inline-block flex-1 border-b border-black ml-1 h-4" />
             </div>
-            <div className="flex">
+            <div className="flex items-center gap-1">
               <span>Roll Number:</span>
-              <div className="flex-1 border-b border-dashed border-black ml-2" />
+              <span className="inline-block w-40 border-b border-black ml-1 h-4" />
             </div>
           </div>
 
-          {/* Question List */}
-          <div className="space-y-8">
-            {assignment.questions?.map((question, index) => (
-              <div key={question.id} className="space-y-3 text-sm break-inside-avoid">
-                <div className="flex justify-between items-start font-medium">
-                  <div className="flex space-x-1.5">
-                    <span className="font-bold">{index + 1}.</span>
-                    <span className="whitespace-pre-wrap leading-relaxed">{question.questionText}</span>
-                  </div>
-                  <span className="font-bold pl-4 text-xs whitespace-nowrap">
-                    [{question.marks} {question.marks === 1 ? "Mark" : "Marks"}]
-                  </span>
+          {/* ===== QUESTION SECTIONS ===== */}
+          <div className="space-y-10">
+            {result.sections?.map((section: any, sIdx: number) => (
+              <div key={sIdx} className="break-inside-avoid">
+
+                {/* Section heading: bold, left-aligned with underline (matches reference) */}
+                <div className="border-b border-[#1A1A1A] pb-1 mb-2">
+                  <h2 className="text-sm font-extrabold uppercase tracking-wide">
+                    {section.title} — {section.questionType}
+                  </h2>
                 </div>
 
-                {/* Question Type Options or Empty Lines */}
-                {question.options && question.options.length > 0 && (
-                  <div className="grid grid-cols-2 gap-3 pl-6">
-                    {question.options.map((option, optIdx) => {
-                      const label = String.fromCharCode(65 + optIdx); // A, B, C, D
-                      return (
-                        <div key={optIdx} className="flex items-center space-x-2">
-                          <span className="font-bold text-xs">({label})</span>
-                          <span>{option}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                {/* Italic instruction line */}
+                <p className="text-xs italic text-[#1A1A1A] mb-4">
+                  {section.instruction}
+                </p>
 
-                {/* Empty Lines for Short/Long Answer Questions */}
-                {(!question.options || question.options.length === 0) && (
-                  <div className="pl-6 space-y-2.5 pt-1.5">
-                    {question.type === "Long Answer" ? (
-                      [...Array(6)].map((_, i) => (
-                        <div key={i} className="border-b border-dashed border-gray-300 h-5" />
-                      ))
-                    ) : (
-                      [...Array(3)].map((_, i) => (
-                        <div key={i} className="border-b border-dashed border-gray-300 h-5" />
-                      ))
-                    )}
-                  </div>
-                )}
+                {/* Questions — matches reference: "1. Write an essay... (MODERATE) [10 Marks]" */}
+                <div className="space-y-3">
+                  {section.questions?.map((q: any) => (
+                    <div key={q.number} className="flex items-start gap-2 text-sm leading-relaxed">
+                      <span className="font-bold flex-shrink-0 w-7 text-right">{q.number}.</span>
+                      <div className="flex-grow flex items-start justify-between gap-3">
+                        <span>
+                          {q.text}
+                          {" "}
+                          <span className="text-[11px] font-semibold uppercase text-[#6B7280]">
+                            ({q.difficulty})
+                          </span>
+                        </span>
+                        <span className="flex-shrink-0 font-bold border border-[#1A1A1A] rounded px-2 py-0.5 text-xs whitespace-nowrap">
+                          [{q.marks} {q.marks === 1 ? "Mark" : "Marks"}]
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
 
-          {/* Footer of assessment */}
-          <div className="text-center text-[10px] text-gray-400 mt-16 pt-4 border-t border-gray-100 uppercase tracking-widest break-inside-avoid">
+          {/* ===== END OF PAPER ===== */}
+          <p className="text-center font-bold text-xs mt-16 pt-4 text-[#6B7280] uppercase tracking-widest">
             *** End of Assessment ***
-          </div>
+          </p>
+
+          {/* ===== ANSWER KEY (when enabled) ===== */}
+          {showAnswerKeys && result.sections && (
+            <div className="mt-12 pt-6 border-t-2 border-dashed border-black font-sans break-before-page">
+              <h3 className="text-base font-extrabold text-[#1A1A1A] mb-4">
+                Answer Key:
+              </h3>
+              <div className="space-y-6">
+                {result.sections.map((section: any) => (
+                  <div key={section.title}>
+                    <h4 className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2">
+                      {section.title}
+                    </h4>
+                    <ol className="list-decimal list-outside pl-5 space-y-3 text-sm">
+                      {section.questions?.map((q: any) => (
+                        <li key={q.number} className="leading-relaxed text-[#1A1A1A]">
+                          {q.answer || "No answer key provided."}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

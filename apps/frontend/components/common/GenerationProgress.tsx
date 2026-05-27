@@ -68,13 +68,18 @@ export const GenerationProgress: React.FC<Props> = ({ countdown }) => {
       </div>
 
       {/* Terminal Logs Box */}
-      <div className="w-full bg-brand-dark text-gray-250 p-4 rounded-xl text-[11px] font-mono h-40 overflow-y-auto border border-gray-800 shadow-inner flex flex-col space-y-1">
+      <div className="w-full bg-brand-dark text-gray-200 p-4 rounded-xl text-[11px] font-mono h-40 overflow-y-auto border border-gray-800 shadow-inner flex flex-col space-y-1">
         {currentJob.logs.map((log, index) => (
           <div key={index} className="flex items-start">
             <span className="text-brand-orange mr-1.5">&gt;</span>
-            <span>{log}</span>
+            <span className="text-gray-200">{log}</span>
           </div>
         ))}
+        {/* Blinking cursor on last line */}
+        <div className="flex items-center">
+          <span className="text-brand-orange mr-1.5">&gt;</span>
+          <span className="inline-block w-1.5 h-3.5 bg-brand-orange animate-pulse rounded-sm" />
+        </div>
         {/* Scroll target */}
         <div ref={(el) => el?.scrollIntoView({ behavior: "smooth" })} />
       </div>

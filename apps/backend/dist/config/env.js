@@ -18,6 +18,10 @@ const envSchema = zod_1.z.object({
     FRONTEND_URL: zod_1.z.string().default('http://localhost:3000'),
     NODE_ENV: zod_1.z.enum(['development', 'production', 'test']).default('development'),
     UPLOAD_DIR: zod_1.z.string().default('./uploads'),
+    R2_ACCOUNT_ID: zod_1.z.string().min(1, 'R2_ACCOUNT_ID is required'),
+    R2_ACCESS_KEY_ID: zod_1.z.string().min(1, 'R2_ACCESS_KEY_ID is required'),
+    R2_SECRET_ACCESS_KEY: zod_1.z.string().min(1, 'R2_SECRET_ACCESS_KEY is required'),
+    R2_BUCKET_NAME: zod_1.z.string().default('vedaai'),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

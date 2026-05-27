@@ -12,6 +12,12 @@
     "build:frontend": "npm run build --workspace=apps/frontend",
     "start:backend": "npm run start --workspace=apps/backend",
     "start:frontend": "npm run start --workspace=apps/frontend",
-    "install:all": "npm install"
+    "install:all": "npm install",
+    "build": "npm run build:backend && npm run build:frontend",
+    "start": "PORT=4000 npm run start:backend & PORT=3000 npm run start:frontend & node server.js",
+    "verify": "node verify_connections.js"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
   }
 }

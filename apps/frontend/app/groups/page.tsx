@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, X, Users, GraduationCap, BookOpen } from "lucide-react";
+import { Plus, X, Users, GraduationCap } from "lucide-react";
 import { useAssignmentStore } from "../../store/useAssignmentStore";
 import axios from "axios";
 import { GroupsSkeleton } from "../../components/Skeletons";
@@ -129,15 +129,15 @@ export default function GroupsPage() {
   const getAvatarStyles = (groupName: string) => {
     const charCode = groupName.charCodeAt(0) || 0;
     const colorIndex = charCode % 5;
-    const colors = [
-      "#F15A22", // orange
-      "#22C55E", // green
-      "#3B82F6", // blue
-      "#A855F7", // purple
-      "#EAB308"  // yellow
+    const gradients = [
+      "from-[#F15A22] to-[#FF8C00]", // orange
+      "from-[#22C55E] to-[#4ADE80]", // green
+      "from-[#3B82F6] to-[#60A5FA]", // blue
+      "from-[#A855F7] to-[#C084FC]", // purple
+      "from-[#EAB308] to-[#FACC15]"  // yellow
     ];
     return {
-      bgColor: colors[colorIndex],
+      gradient: gradients[colorIndex],
       initial: groupName.substring(0, 1).toUpperCase()
     };
   };
@@ -147,40 +147,41 @@ export default function GroupsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto font-sans relative min-h-[80vh]" onClick={() => setMenuOpen(null)}>
+    <div className="space-y-6 max-w-6xl mx-auto font-sans relative min-h-[80vh] px-1" onClick={() => setMenuOpen(null)}>
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-brand-dark">Active Student Groups</h2>
-          <p className="text-sm text-brand-secondary">
-            Organize student rosters and assign syllabus goals.
+        <div className="space-y-1">
+          <h2 className="text-2xl font-extrabold text-brand-dark font-bricolage tracking-tight">Active Student Groups</h2>
+          <p className="text-sm text-brand-secondary font-medium">
+            Organize student rosters, trace group parameters, and easily align syllabus paths.
           </p>
         </div>
 
+        {/* Add Group Button - Styled beautifully with hover scaling */}
         <button
           onClick={() => setIsSlideOverOpen(true)}
-          className="flex items-center space-x-1.5 px-5 py-2.5 bg-[#1A1A1A] hover:opacity-90 active:scale-95 transition-all text-white font-semibold rounded-full text-sm shadow-md"
+          className="flex items-center space-x-1.5 px-5 py-2.5 bg-[#1A1A1A] hover:bg-black active:scale-95 transition-all text-white font-bold rounded-full text-sm shadow-md border border-white/10 group"
         >
-          <Plus className="w-4.5 h-4.5" />
+          <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
           <span>Add Group</span>
         </button>
       </div>
 
       {/* Grid of groups */}
       {groups.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-150 p-12 text-center flex flex-col items-center justify-center space-y-4">
-          <div className="p-4 bg-orange-50 rounded-full text-brand-orange">
+        <div className="bg-white/80 backdrop-blur-md rounded-3xl border border-gray-150/60 p-16 text-center flex flex-col items-center justify-center space-y-5 shadow-sm">
+          <div className="p-4 bg-orange-50 border border-orange-100 rounded-full text-[#F15A22] animate-pulseSlow shadow-sm">
             <Users className="w-10 h-10 stroke-[1.5]" />
           </div>
-          <div className="max-w-md space-y-1">
-            <h3 className="text-lg font-bold text-brand-dark">No Groups Found</h3>
-            <p className="text-xs text-brand-secondary">
-              Create student groups to organize class progress and dispatch customized assessments.
+          <div className="max-w-md space-y-2">
+            <h3 className="text-lg font-black text-brand-dark font-bricolage">No Groups Found</h3>
+            <p className="text-xs text-brand-secondary font-medium leading-relaxed">
+              Create student groups to organize class progress and dispatch customized curriculum assessments.
             </p>
           </div>
           <button
             onClick={() => setIsSlideOverOpen(true)}
-            className="px-4 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] text-white font-semibold rounded-lg text-xs"
+            className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-black text-white font-bold rounded-full text-xs shadow-md border border-white/10 active:scale-95 transition-all"
           >
             Create Your First Group
           </button>
@@ -192,28 +193,26 @@ export default function GroupsPage() {
             return (
               <div
                 key={group._id}
-                className="bg-white rounded-xl border border-gray-150 p-5 shadow-sm hover:shadow-md transition-shadow relative flex flex-col justify-between space-y-4 font-sans"
+                className="bg-white/85 backdrop-blur-md rounded-2xl border border-gray-150/60 p-5 shadow-[0_4px_24px_-6px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_30px_-6px_rgba(241,90,34,0.08)] hover:border-[#F15A22]/20 hover:-translate-y-1 transition-all duration-300 relative flex flex-col justify-between space-y-4 font-sans"
               >
                 {/* Card Header & Avatar */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3.5">
-                    {/* Circle Avatar */}
+                    {/* Circle Avatar with nice CSS gradients */}
                     <div 
-                      className="w-11 h-11 rounded-full flex items-center justify-center font-bold text-lg text-white"
-                      style={{ backgroundColor: avatar.bgColor }}
+                      className={`w-12 h-12 rounded-full flex items-center justify-center font-extrabold text-lg text-white bg-gradient-to-br ${avatar.gradient} shadow-sm border border-white/20`}
                     >
                       {avatar.initial}
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-brand-dark leading-tight">{group.name}</h4>
-                      <span className="text-[10px] text-brand-secondary">{group.subject}</span>
+                    <div className="space-y-0.5">
+                      <h4 className="text-sm font-black text-brand-dark leading-tight font-sans tracking-tight">{group.name}</h4>
+                      <span className="text-[10px] font-extrabold uppercase text-[#F15A22] tracking-wider">{group.subject}</span>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-3">
                     <span
-                      className="text-[10px] font-bold text-white px-2.5 py-1 rounded-full"
-                      style={{ backgroundColor: avatar.bgColor }}
+                      className={`text-[10px] font-black text-white px-3 py-1 rounded-full bg-gradient-to-r ${avatar.gradient} shadow-sm`}
                     >
                       {group.studentCount} Students
                     </span>
@@ -222,21 +221,21 @@ export default function GroupsPage() {
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <button 
                         onClick={() => setMenuOpen(menuOpen === group._id ? null : group._id)} 
-                        className="text-gray-400 hover:text-gray-600 font-bold text-lg w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-50 transition-colors"
+                        className="text-gray-400 hover:text-gray-650 font-bold text-lg w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
                       >
                         ⋮
                       </button>
                       
                       {menuOpen === group._id && (
-                        <div className="absolute right-0 top-7 bg-white border border-[#E5E5E5] rounded-xl shadow-lg z-10 min-w-[120px] py-1 text-xs">
+                        <div className="absolute right-0 top-8 bg-white/95 backdrop-blur-md border border-gray-150/70 rounded-xl shadow-lg z-10 min-w-[130px] py-1 text-xs">
                           <button 
-                            className="block w-full text-left px-4 py-2 hover:bg-gray-50 font-medium text-brand-dark transition-colors"
+                            className="block w-full text-left px-4 py-2 hover:bg-gray-50 font-bold text-brand-dark transition-colors"
                             onClick={() => addToast("Edit feature is coming soon!", "info")}
                           >
                             Edit
                           </button>
                           <button 
-                            className="block w-full text-left px-4 py-2 text-red-650 hover:bg-red-50 font-semibold transition-colors border-t border-gray-100" 
+                            className="block w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 font-black transition-colors border-t border-gray-100/60" 
                             onClick={() => { handleDeleteGroup(group._id, group.name); setMenuOpen(null); }}
                           >
                             Delete
@@ -247,15 +246,15 @@ export default function GroupsPage() {
                   </div>
                 </div>
 
-                {/* Info Fields */}
-                <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-brand-dark pt-2 border-t border-gray-100">
-                  <div className="flex items-center space-x-1.5 p-2 bg-gray-50 rounded-lg">
-                    <GraduationCap className="w-4 h-4 text-brand-orange" />
-                    <span>{group.className}</span>
+                {/* Info Fields - Restyled into compact pill sections */}
+                <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-brand-dark pt-3 border-t border-gray-100/60">
+                  <div className="flex items-center space-x-2 p-2.5 bg-gray-50 border border-gray-100/70 rounded-xl">
+                    <GraduationCap className="w-4 h-4 text-[#F15A22] flex-shrink-0" />
+                    <span className="font-extrabold text-[11px] text-brand-dark">{group.className}</span>
                   </div>
-                  <div className="flex items-center space-x-1.5 p-2 bg-gray-50 rounded-lg">
-                    <Users className="w-4 h-4 text-brand-orange" />
-                    <span>{group.studentCount} students</span>
+                  <div className="flex items-center space-x-2 p-2.5 bg-gray-50 border border-gray-100/70 rounded-xl">
+                    <Users className="w-4 h-4 text-[#F15A22] flex-shrink-0" />
+                    <span className="font-extrabold text-[11px] text-brand-dark">{group.studentCount} active roster</span>
                   </div>
                 </div>
               </div>
@@ -267,24 +266,24 @@ export default function GroupsPage() {
       {/* Slide-over creation panel overlay */}
       {isSlideOverOpen && (
         <div 
-          className="fixed inset-0 bg-black/40 z-40 transition-opacity" 
+          className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-opacity" 
           onClick={() => setIsSlideOverOpen(false)}
         />
       )}
 
-      {/* Slide-over panel content */}
-      <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-300 ease-in-out flex flex-col justify-between ${
+      {/* Slide-over panel content - Elevated with premium form layouts */}
+      <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white/95 backdrop-blur-xl shadow-2xl border-l border-gray-200/80 transform transition-transform duration-300 ease-in-out flex flex-col justify-between ${
         isSlideOverOpen ? "translate-x-0" : "translate-x-full"
       }`}>
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="flex items-center justify-between border-b border-gray-150 pb-4">
-            <div>
-              <h3 className="text-lg font-bold text-brand-dark">Create Student Group</h3>
-              <p className="text-xs text-brand-secondary">Define group targets and class size.</p>
+          <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+            <div className="space-y-0.5">
+              <h3 className="text-lg font-black text-brand-dark font-bricolage">Create Student Group</h3>
+              <p className="text-xs text-brand-secondary font-medium">Define group parameters, subject fields, and roster size.</p>
             </div>
             <button
               onClick={() => setIsSlideOverOpen(false)}
-              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-dark"
+              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-dark transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -292,7 +291,7 @@ export default function GroupsPage() {
 
           <form onSubmit={handleCreateGroup} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+              <label className="text-[10px] font-black text-brand-dark uppercase tracking-wider block">
                 Group Name
               </label>
               <input
@@ -300,19 +299,19 @@ export default function GroupsPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Advanced Chemistry B"
-                className="w-full px-3.5 py-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#F15A22] focus:ring-4 focus:ring-orange-100/40 transition-all duration-200"
                 required
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+              <label className="text-[10px] font-black text-brand-dark uppercase tracking-wider block">
                 Class / Grade Level
               </label>
               <select
                 value={className}
                 onChange={(e) => setClassName(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#F15A22] focus:ring-4 focus:ring-orange-100/40 transition-all duration-200"
                 required
               >
                 <option value="">-- Choose Grade --</option>
@@ -325,13 +324,13 @@ export default function GroupsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+              <label className="text-[10px] font-black text-brand-dark uppercase tracking-wider block">
                 Subject
               </label>
               <select
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#F15A22] focus:ring-4 focus:ring-orange-100/40 transition-all duration-200"
                 required
               >
                 <option value="">-- Choose Subject --</option>
@@ -344,7 +343,7 @@ export default function GroupsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+              <label className="text-[10px] font-black text-brand-dark uppercase tracking-wider block">
                 Student Count
               </label>
               <input
@@ -352,8 +351,8 @@ export default function GroupsPage() {
                 min="1"
                 value={studentCount === 0 ? "" : studentCount}
                 onChange={(e) => setStudentCount(parseInt(e.target.value) || 0)}
-                placeholder="20"
-                className="w-full px-3.5 py-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium font-semibold"
+                placeholder="e.g. 20"
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#F15A22] focus:ring-4 focus:ring-orange-100/40 transition-all duration-200"
                 required
               />
             </div>
@@ -362,14 +361,14 @@ export default function GroupsPage() {
               <button
                 type="button"
                 onClick={() => setIsSlideOverOpen(false)}
-                className="px-4 py-2 border border-gray-250 hover:bg-gray-50 text-brand-dark font-semibold rounded-lg text-sm"
+                className="px-5 py-2.5 border border-gray-300 hover:bg-gray-50 text-brand-dark font-extrabold rounded-xl text-sm transition-colors active:scale-95"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] hover:brightness-105 active:scale-95 text-white font-bold rounded-lg text-sm flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/10"
+                className="px-6 py-2.5 bg-[#1A1A1A] hover:bg-black text-white font-extrabold rounded-xl text-sm flex items-center space-x-1.5 transition-all shadow-md active:scale-95"
               >
                 <span>{submitting ? "Creating..." : "Save Group"}</span>
               </button>

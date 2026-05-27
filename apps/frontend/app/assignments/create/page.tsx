@@ -4,24 +4,27 @@ import React, { useState, useEffect } from "react";
 import { useAssignmentStore, QuestionRow } from "../../../store/useAssignmentStore";
 import { ErrorBoundary } from "../../../components/common/ErrorBoundary";
 import { GenerationProgress } from "../../../components/common/GenerationProgress";
-import { 
-  Upload, 
-  Trash2, 
-  Plus, 
-  Mic, 
-  MicOff, 
-  ArrowRight, 
-  ArrowLeft, 
-  Sparkles, 
-  Check, 
-  AlertCircle, 
-  Clock, 
+import {
+  Upload,
+  Trash2,
+  Plus,
+  Mic,
+  MicOff,
+  ArrowRight,
+  ArrowLeft,
+  Sparkles,
+  Check,
+  AlertCircle,
+  Clock,
   School,
-  BookOpen
+  BookOpen,
+  Calendar,
+  ChevronDown
 } from "lucide-react";
 import axios from "axios";
 import { Step2SettingsSkeleton } from "../../../components/Skeletons";
 import { z } from "zod";
+import { useRouter } from "next/navigation";
 
 const step1Schema = z.object({
   dueDate: z.string().min(1, 'Due date is required'),
@@ -47,7 +50,7 @@ const step2Schema = z.object({
     .refine((d) => d.easy + d.medium + d.hard === 100, 'Must sum to 100%'),
 });
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export default function CreateAssignmentPage() {
   const activeStep = useAssignmentStore((state) => state.activeStep);
@@ -62,13 +65,15 @@ export default function CreateAssignmentPage() {
   const setCurrentJob = useAssignmentStore((state) => state.setCurrentJob);
   const addToast = useAssignmentStore((state) => state.addToast);
 
+  const router = useRouter();
+
   // Local state variables
   const [isDragActive, setIsDragActive] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(true);
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(150);
 
-  // Countdown timer while job is processing
+  // Keyboard shortcut Ctrl+G to trigger generation/next
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key.toLowerCase() === 'g') {
@@ -84,9 +89,10 @@ export default function CreateAssignmentPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeStep, formData]);
 
+  // Countdown timer while job is processing
   useEffect(() => {
     if (!currentJob || currentJob.status !== "processing") return;
-    setCountdown(90);
+    setCountdown(150);
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -99,21 +105,21 @@ export default function CreateAssignmentPage() {
     return () => clearInterval(timer);
   }, [currentJob?.status]);
 
-  // Load user settings defaults on component mount
+  // Load defaults
   useEffect(() => {
     const loadDefaults = async () => {
       try {
         const res = await axios.get(`${API_URL}/api/settings`);
         if (res.data) {
           setFormData({
-            schoolName: formData.schoolName || res.data.schoolName || "Veda International School",
+            schoolName: formData.schoolName || res.data.schoolName || "Delhi Public School",
             timeAllowed: formData.timeAllowed === 60 ? (res.data.defaultTimeAllowed || 60) : formData.timeAllowed,
             includeAnswerKey: res.data.includeAnswerKeyDefault !== false,
-            difficulty: res.data.defaultDifficulty === "easy" 
+            difficulty: res.data.defaultDifficulty === "easy"
               ? { easy: 60, medium: 30, hard: 10 }
               : res.data.defaultDifficulty === "hard"
-              ? { easy: 10, medium: 30, hard: 60 }
-              : { easy: 30, medium: 50, hard: 20 }
+                ? { easy: 10, medium: 30, hard: 60 }
+                : { easy: 30, medium: 50, hard: 20 }
           });
         }
       } catch (err) {
@@ -122,22 +128,21 @@ export default function CreateAssignmentPage() {
         if (cached) {
           const parsed = JSON.parse(cached);
           setFormData({
-            schoolName: formData.schoolName || parsed.schoolName || "Veda International School",
+            schoolName: formData.schoolName || parsed.schoolName || "Delhi Public School",
             timeAllowed: formData.timeAllowed === 60 ? (parsed.defaultTimeAllowed || 60) : formData.timeAllowed,
             includeAnswerKey: parsed.includeAnswerKeyDefault !== false,
             difficulty: parsed.defaultDifficulty === "easy"
               ? { easy: 60, medium: 30, hard: 10 }
               : parsed.defaultDifficulty === "hard"
-              ? { easy: 10, medium: 30, hard: 60 }
-              : { easy: 30, medium: 50, hard: 20 }
+                ? { easy: 10, medium: 30, hard: 60 }
+                : { easy: 30, medium: 50, hard: 20 }
           });
         } else {
           if (!formData.schoolName) {
-            setFormData({ schoolName: "Veda International School" });
+            setFormData({ schoolName: "Delhi Public School" });
           }
         }
       } finally {
-        // Artificially delay slightly (e.g. 600ms) to show skeleton load beautifully
         setTimeout(() => {
           setLoadingSettings(false);
         }, 600);
@@ -146,7 +151,7 @@ export default function CreateAssignmentPage() {
     loadDefaults();
   }, []);
 
-  // File Upload Handlers
+  // File drag handlers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -173,8 +178,7 @@ export default function CreateAssignmentPage() {
         addToast("File is too large. Maximum size is 10MB.", "error");
         return;
       }
-      
-      // Simulate file reading/storage
+
       const reader = new FileReader();
       reader.onload = () => {
         setFormData({
@@ -214,37 +218,10 @@ export default function CreateAssignmentPage() {
     }
   };
 
-  // Speech Recognition Interfaces
-  interface SpeechRecognitionResultEvent {
-    results: {
-      [key: number]: {
-        [key: number]: {
-          transcript: string;
-        };
-      };
-    };
-  }
-
-  interface SpeechRecognitionErrorEvent {
-    error: string;
-  }
-
-  interface SpeechRecognitionInstance {
-    continuous: boolean;
-    lang: string;
-    interimResults: boolean;
-    onstart: () => void;
-    onresult: (event: SpeechRecognitionResultEvent) => void;
-    onerror: (event: SpeechRecognitionErrorEvent) => void;
-    onend: () => void;
-    start: () => void;
-  }
-
   // Speech Recognition Handler
   const startSpeechRecognition = () => {
-    const SpeechRecognition = 
-      (window as Window & { SpeechRecognition?: new () => SpeechRecognitionInstance; webkitSpeechRecognition?: new () => SpeechRecognitionInstance }).SpeechRecognition || 
-      (window as Window & { SpeechRecognition?: new () => SpeechRecognitionInstance; webkitSpeechRecognition?: new () => SpeechRecognitionInstance }).webkitSpeechRecognition;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
       addToast("Web Speech recognition not supported in this browser.", "error");
@@ -261,17 +238,17 @@ export default function CreateAssignmentPage() {
       addToast("Listening... Speak the details of your exam.", "info");
     };
 
-    recognition.onresult = (event: SpeechRecognitionResultEvent) => {
+    recognition.onresult = (event: any) => {
       const speechToText = event.results[0][0].transcript;
-      setFormData({ 
-        voicePrompt: formData.voicePrompt 
-          ? `${formData.voicePrompt} ${speechToText}` 
-          : speechToText 
+      setFormData({
+        voicePrompt: formData.voicePrompt
+          ? `${formData.voicePrompt} ${speechToText}`
+          : speechToText
       });
       addToast("Voice prompt appended!", "success");
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: any) => {
       console.error("Speech error:", event.error);
       addToast(`Voice Error: ${event.error}`, "error");
       setIsListening(false);
@@ -284,14 +261,14 @@ export default function CreateAssignmentPage() {
     recognition.start();
   };
 
-  // Auto-balancing Sliders Logic
+  // Auto-balancing sliders step 2
   const handleDifficultyChange = (key: "easy" | "medium" | "hard", val: number) => {
     const otherKeys = (["easy", "medium", "hard"] as const).filter(k => k !== key);
     const diff = 100 - val;
     const otherSum = formData.difficulty[otherKeys[0]] + formData.difficulty[otherKeys[1]];
-    
+
     let newVals = { ...formData.difficulty, [key]: val };
-    
+
     if (otherSum === 0) {
       newVals[otherKeys[0]] = Math.round(diff / 2);
       newVals[otherKeys[1]] = diff - newVals[otherKeys[0]];
@@ -299,15 +276,15 @@ export default function CreateAssignmentPage() {
       newVals[otherKeys[0]] = Math.round((formData.difficulty[otherKeys[0]] / otherSum) * diff);
       newVals[otherKeys[1]] = diff - newVals[otherKeys[0]];
     }
-    
+
     setFormData({ difficulty: newVals });
   };
 
-  // Math totals calculation
+  // Math Totals
   const totalQuestions = formData.questionRows.reduce((sum, r) => sum + r.count, 0);
   const totalMarks = formData.questionRows.reduce((sum, r) => sum + (r.count * r.marksPerQuestion), 0);
 
-  // Steppers controls with max boundaries
+  // Steppers boundaries
   const adjustCount = (id: string, step: number) => {
     const row = formData.questionRows.find(r => r.id === id);
     if (!row) return;
@@ -333,14 +310,13 @@ export default function CreateAssignmentPage() {
       })),
       additionalInstructions: formData.voicePrompt
     };
-    
+
     const result = step1Schema.safeParse(dataToParse);
     if (!result.success) {
       addToast(result.error.errors[0].message, "error");
       return false;
     }
-    
-    // Check that there is context
+
     if (!formData.file && !formData.voicePrompt.trim()) {
       addToast("Please upload a study material file or provide a text/voice prompt description.", "error");
       return false;
@@ -354,7 +330,7 @@ export default function CreateAssignmentPage() {
     }
   };
 
-  // Submit Generation Request
+  // Submit assessment Generation
   const handleSubmit = async () => {
     const dataToParse = {
       subject: formData.subject,
@@ -363,38 +339,59 @@ export default function CreateAssignmentPage() {
       timeAllowed: formData.timeAllowed,
       difficultyDistribution: formData.difficulty
     };
-    
+
     const result = step2Schema.safeParse(dataToParse);
     if (!result.success) {
       addToast(result.error.errors[0].message, "error");
       return;
     }
 
-    // Set Job processing to true
-    const jobId = `job_${Date.now()}`;
     setCurrentJob({
-      id: jobId,
+      id: `pending_${Date.now()}`,
       status: "processing",
-      progress: 0,
-      logs: ["Submitting parameters to generation pipeline..."]
+      progress: 2,
+      logs: ["Connecting to VedaAI generation server..."]
     });
 
     try {
-      // Post details to backend API (Mock payload or real endpoint)
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-      await axios.post(`${apiUrl}/api/assignments`, {
-        jobId,
+      const res = await axios.post(`${API_URL}/api/assignments`, {
         formData
-      });
-      addToast("Assessment job registered on server.", "info");
+      }, { timeout: 15000 });
+
+      if (res.data && res.data.assignment && res.data.assignment._id) {
+        const backendId = res.data.assignment._id;
+        setCurrentJob({
+          id: backendId,
+          status: "processing",
+          progress: 8,
+          logs: [
+            "Connecting to VedaAI generation server...",
+            `Assessment queued on server (ID: ${backendId.slice(-8)})`,
+            "Initializing question generation pipeline..."
+          ]
+        });
+        addToast("Assessment job registered on server.", "info");
+      } else {
+        throw new Error(`Unexpected server response: ${JSON.stringify(res.data)}`);
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.warn("Backend API not reachable. Running on offline simulator:", errMsg);
-      // Simulating job progress is handled in hook fallback. So no extra code needed here!
+      console.error("[CreatePage] Backend API error:", errMsg);
+      addToast(`Server error: ${errMsg}. Running offline simulation.`, "error");
+
+      const jobId = `offline_${Date.now()}`;
+      setCurrentJob({
+        id: jobId,
+        status: "processing",
+        progress: 5,
+        logs: [
+          "Server unreachable — running offline simulation mode.",
+          "Initializing offline assessment generator..."
+        ]
+      });
     }
   };
 
-  // Generation Loading State view (PAGE D)
   if (currentJob && currentJob.status === "processing") {
     return (
       <ErrorBoundary fallback={<div className="max-w-xl mx-auto bg-white rounded-2xl border border-gray-150 p-8 text-center text-red-600 font-bold">Generation status unavailable.</div>}>
@@ -404,476 +401,930 @@ export default function CreateAssignmentPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden font-sans">
-      
-      {/* Step Tracker Header */}
-      <div className="bg-gray-50 border-b border-gray-150 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-lg bg-orange-100 text-brand-orange flex items-center justify-center font-bold text-sm">
-            {activeStep}
+    <ErrorBoundary fallback={<div className="max-w-xl mx-auto bg-white rounded-2xl border border-gray-150 p-8 text-center text-red-600 font-bold">Create Page Error</div>}>
+
+      {/* ----------------- DESKTOP VIEW (lg and above) ----------------- */}
+      <div className="hidden lg:flex flex-col w-full max-w-[1103px] mx-auto h-[calc(100vh-120px)] relative overflow-hidden font-sans animate-fadeIn">
+        {/* Title & Progress Header */}
+        <div className="flex-shrink-0 mb-4">
+          <div className="flex items-center space-x-3 mb-1">
+            {/* Active Green Dot */}
+            <div className="w-3.5 h-3.5 rounded-full bg-[#4BC26D] shadow-sm animate-pulse" />
+            <h1 className="text-[28px] font-bold font-bricolage text-brand-dark tracking-tight leading-none">Create Assignment</h1>
           </div>
-          <div>
-            <h3 className="font-bold text-brand-dark">
-              {activeStep === 1 ? "Configure Questions & Prompt" : "Configure Parameters & Settings"}
-            </h3>
-            <p className="text-xs text-brand-secondary">
-              {activeStep === 1 ? "Step 1 of 2" : "Step 2 of 2"}
-            </p>
+          <p className="text-xs text-brand-secondary pl-[26px]">Set up a new assignment for your students</p>
+
+          {/* Two-part Progress Bar */}
+          <div className="mt-5 pl-[26px] pr-4 flex items-center gap-1.5">
+            <div className={`h-1.5 rounded-l-full flex-grow transition-all duration-300 ${activeStep >= 1 ? "bg-[#4D4D4D]" : "bg-[#D9D9D9]"}`} />
+            <div className={`h-1.5 rounded-r-full flex-grow transition-all duration-300 ${activeStep >= 2 ? "bg-[#4D4D4D]" : "bg-[#D9D9D9]"}`} />
           </div>
         </div>
 
-        {/* Step Indicator Badges */}
-        <div className="flex items-center space-x-1.5">
-          <div className={`w-3 h-3 rounded-full ${activeStep === 1 ? "bg-brand-orange" : "bg-gray-200"}`} />
-          <div className={`w-3 h-3 rounded-full ${activeStep === 2 ? "bg-brand-orange" : "bg-gray-200"}`} />
+        {/* Main Card Wrapper (Frame 1984077325: Unified visual white bg card, 40px rounded corners) */}
+        <div className="flex-grow bg-white rounded-[40px] border border-gray-200/60 shadow-[0px_4px_24px_rgba(0,0,0,0.02)] overflow-hidden relative flex flex-col mb-4">
+
+          {/* Card Body - Independently Scrollable */}
+          <div className="flex-grow overflow-y-auto p-10 pb-[100px] space-y-8">
+
+            {activeStep === 1 ? (
+              /* --- Step 1 Desktop Content --- */
+              <div className="space-y-8 animate-fadeIn">
+                <div className="border-b border-gray-200 pb-3">
+                  <h2 className="text-xl font-bold text-brand-dark font-bricolage">Assignment Details</h2>
+                  <p className="text-xs text-brand-secondary">Basic information about your assignment</p>
+                </div>
+
+                {/* Ordered Layout: File Upload Dashed Selector FIRST */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                    Curriculum Documents
+                  </label>
+
+                  <div
+                    onDragEnter={handleDrag}
+                    onDragOver={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDrop={handleDrop}
+                    className={`border border-dashed rounded-[20px] p-6 flex flex-col items-center justify-center text-center transition-all min-h-[140px] ${formData.file
+                      ? "border-green-200 bg-green-50/20"
+                      : isDragActive
+                        ? "border-brand-orange bg-orange-50/15"
+                        : "border-[#CCCCCC] bg-[#FAFAFA] shadow-xs hover:border-brand-orange"
+                      }`}
+                  >
+                    <input
+                      type="file"
+                      id="desktop-file-upload"
+                      onChange={handleFileChange}
+                      accept=".pdf,.txt,.png,.jpg,.jpeg"
+                      className="hidden"
+                    />
+
+                    {formData.file ? (
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center border border-green-100">
+                          <Check className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-bold text-brand-dark truncate max-w-[400px]">
+                            {formData.file.name}
+                          </p>
+                          <p className="text-[10px] text-brand-secondary">
+                            {(formData.file.size / 1024).toFixed(1)} KB • Click to replace file
+                          </p>
+                        </div>
+                        <label
+                          htmlFor="desktop-file-upload"
+                          className="text-xs font-bold text-brand-orange hover:underline cursor-pointer ml-6"
+                        >
+                          Change File
+                        </label>
+                      </div>
+                    ) : (
+                      <label htmlFor="desktop-file-upload" className="cursor-pointer flex flex-col items-center gap-1.5 w-full">
+                        <div className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-brand-gray shadow-xs border border-gray-200 mb-1">
+                          <Upload className="w-5 h-5 text-brand-gray stroke-[2]" />
+                        </div>
+                        <p className="text-sm font-bold text-brand-dark">
+                          Choose a file or drag & drop it here
+                        </p>
+                        <p className="text-[10px] text-brand-secondary font-medium">
+                          JPEG, PNG, upto 10MB
+                        </p>
+                        <div className="px-5 py-1.5 bg-[#F2F2F2] border border-gray-200 rounded-full text-[11px] font-semibold text-brand-dark hover:bg-gray-100 active:scale-95 transition-all shadow-xs mt-1">
+                          Browse Files
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-brand-secondary text-center mt-1">
+                    Upload images of your preferred document/image
+                  </p>
+                </div>
+
+                {/* Ordered Layout: Due Date Input SECOND */}
+                <div className="space-y-2 max-w-md">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                    Due Date
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={formData.dueDate}
+                      onChange={(e) => setFormData({ dueDate: e.target.value })}
+                      className="w-full px-4 py-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-semibold text-brand-dark cursor-pointer shadow-xs"
+                    />
+                    <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 pointer-events-none" />
+                  </div>
+                  <p className="text-[10px] text-brand-secondary leading-normal">
+                    Students must submit their responses by this calendar date.
+                  </p>
+                </div>
+
+                {/* Ordered Layout: Questions blueprint builder THIRD */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                    <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                      Question Blueprints
+                    </label>
+                  </div>
+
+                  {/* Blueprint Rows (Horizontal Row-wise styling) */}
+                  <div className="space-y-3.5">
+                    {formData.questionRows.map((row: QuestionRow) => (
+                      <div
+                        key={row.id}
+                        className="flex flex-row items-center justify-between gap-3 p-3.5 bg-white rounded-2xl border border-gray-100 hover:border-gray-200 transition-all shadow-xs animate-fadeIn"
+                      >
+                        <div className="flex items-center gap-2 flex-grow">
+                          {/* Dropdown Type Selector */}
+                          <div className="relative flex-grow max-w-[340px]">
+                            <select
+                              value={row.type}
+                              onChange={(e) => updateQuestionRow(row.id, { type: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-orange text-xs font-semibold text-brand-dark appearance-none pr-8 cursor-pointer shadow-xs"
+                            >
+                              <option value="MCQ">Multiple Choice Questions</option>
+                              <option value="Short Answer">Short Questions</option>
+                              <option value="Diagram/Graph-Based Questions">Diagram/Graph-Based Questions</option>
+                              <option value="Numerical Problems">Numerical Problems</option>
+                              <option value="Long Answer">Long Answer</option>
+                              <option value="True/False">True / False</option>
+                              <option value="Fill in the Blanks">Fill in the Blanks</option>
+                              <option value="Essay Questions">Essay Questions</option>
+                            </select>
+                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 pointer-events-none" />
+                          </div>
+
+                          {/* Delete button next to select dropdown */}
+                          <button
+                            type="button"
+                            onClick={() => removeQuestionRow(row.id)}
+                            disabled={formData.questionRows.length <= 1}
+                            className="text-gray-400 hover:text-red-500 font-sans text-xl font-bold px-2 disabled:opacity-20 transition-all active:scale-90"
+                          >
+                            ×
+                          </button>
+                        </div>
+
+                        {/* Stepper pills in grey capsules row-wise */}
+                        <div className="flex items-center gap-4">
+                          {/* Count Stepper */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">No. of Questions</span>
+                            <div className="inline-flex items-center bg-[#F2F2F2] rounded-full px-2.5 py-1 gap-2 border border-gray-150/40 w-[72px] justify-between shadow-inner">
+                              <button
+                                type="button"
+                                onClick={() => adjustCount(row.id, -1)}
+                                className="w-5.5 h-5.5 flex items-center justify-center rounded-full hover:bg-gray-200 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                              >
+                                -
+                              </button>
+                              <span className="font-bold text-brand-dark text-xs">{row.count}</span>
+                              <button
+                                type="button"
+                                onClick={() => adjustCount(row.id, 1)}
+                                className="w-5.5 h-5.5 flex items-center justify-center rounded-full hover:bg-gray-200 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Marks Stepper */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Marks</span>
+                            <div className="inline-flex items-center bg-[#F2F2F2] rounded-full px-2.5 py-1 gap-2 border border-gray-150/40 w-[72px] justify-between shadow-inner">
+                              <button
+                                type="button"
+                                onClick={() => adjustMarks(row.id, -1)}
+                                className="w-5.5 h-5.5 flex items-center justify-center rounded-full hover:bg-gray-250 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                              >
+                                -
+                              </button>
+                              <span className="font-bold text-brand-dark text-xs">{row.marksPerQuestion}</span>
+                              <button
+                                type="button"
+                                onClick={() => adjustMarks(row.id, 1)}
+                                className="w-5.5 h-5.5 flex items-center justify-center rounded-full hover:bg-gray-250 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add button and Totals */}
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      type="button"
+                      onClick={addQuestionRow}
+                      className="flex items-center space-x-3 text-sm font-bold text-brand-dark hover:opacity-80 active:scale-95 transition-all"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center shadow-sm">
+                        <Plus className="w-4 h-4 text-white stroke-[2.5]" />
+                      </div>
+                      <span className="text-xs font-bold text-brand-dark">Add Question Type</span>
+                    </button>
+
+                    <div className="flex flex-col items-end gap-1 text-right">
+                      <div className="text-sm text-brand-secondary font-medium">Total Questions : <span className="font-bold text-brand-dark">{totalQuestions}</span></div>
+                      <div className="text-sm text-brand-secondary font-medium">Total Marks : <span className="font-bold text-brand-dark">{totalMarks}</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Additional Information outline box */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">Additional Information (For better output)</label>
+                  <div className="relative border border-dashed border-gray-300 rounded-[16px] p-1 bg-[#FAFAFA] hover:border-gray-400 transition-all shadow-xs">
+                    <textarea
+                      value={formData.voicePrompt}
+                      onChange={(e) => setFormData({ voicePrompt: e.target.value })}
+                      placeholder="e.g Generate a question paper for 3 hour exam duration.."
+                      rows={4}
+                      className="w-full bg-transparent p-4 pr-16 text-sm focus:outline-none resize-none font-medium text-brand-dark"
+                    />
+                    <button
+                      type="button"
+                      onClick={startSpeechRecognition}
+                      className={`absolute bottom-4 right-4 p-2.5 rounded-full transition-all ${isListening
+                        ? "bg-red-50 text-red-500 border border-red-200 animate-pulse"
+                        : "text-gray-400 hover:text-brand-orange bg-white shadow-xs border border-gray-150 active:scale-90"
+                        }`}
+                    >
+                      {isListening ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* --- Step 2 Desktop Content --- */
+              <div className="space-y-8 animate-fadeIn">
+                <div className="border-b border-gray-200 pb-3">
+                  <h2 className="text-xl font-bold text-brand-dark font-bricolage">Assessment Settings</h2>
+                  <p className="text-xs text-brand-secondary">Configure defaults and difficulty metrics</p>
+                </div>
+
+                {loadingSettings ? (
+                  <Step2SettingsSkeleton />
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Subject Select */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                          Subject
+                        </label>
+                        <select
+                          value={formData.subject}
+                          onChange={(e) => setFormData({ subject: e.target.value })}
+                          className="w-full px-4 py-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange font-semibold text-brand-dark cursor-pointer appearance-none pr-10 shadow-xs"
+                        >
+                          <option value="">-- Choose Subject --</option>
+                          <option value="Science">Science (Biology/Physics)</option>
+                          <option value="Mathematics">Mathematics</option>
+                          <option value="English">English Literature</option>
+                          <option value="History">History & Social Studies</option>
+                          <option value="Geography">Geography</option>
+                        </select>
+                      </div>
+
+                      {/* Class Grade Select */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                          Class / Grade
+                        </label>
+                        <select
+                          value={formData.grade}
+                          onChange={(e) => setFormData({ grade: e.target.value })}
+                          className="w-full px-4 py-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange font-semibold text-brand-dark cursor-pointer appearance-none pr-10 shadow-xs"
+                        >
+                          <option value="">-- Choose Grade --</option>
+                          <option value="Class 8">Class 8</option>
+                          <option value="Grade 9">Grade 9</option>
+                          <option value="Class 10">Class 10</option>
+                          <option value="Grade 11">Grade 11</option>
+                          <option value="Grade 12">Grade 12</option>
+                        </select>
+                      </div>
+
+                      {/* School Name input */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
+                          <School className="w-3.5 h-3.5 text-gray-400" />
+                          <span>School Name Prefill</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.schoolName}
+                          onChange={(e) => setFormData({ schoolName: e.target.value })}
+                          className="w-full px-4 py-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange font-semibold text-brand-dark shadow-xs"
+                          placeholder="Delhi Public School"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Time Limit & Toggle switch */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Time allowed */}
+                      <div className="space-y-3">
+                        <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
+                          <Clock className="w-3.5 h-3.5 text-gray-400" />
+                          <span>Time Allowed (Minutes)</span>
+                        </label>
+                        <div className="flex items-center space-x-4">
+                          <input
+                            type="range"
+                            min="15"
+                            max="180"
+                            step="15"
+                            value={formData.timeAllowed}
+                            onChange={(e) => setFormData({ timeAllowed: parseInt(e.target.value) })}
+                            className="flex-grow accent-brand-orange cursor-pointer"
+                          />
+                          <span className="w-22 px-3 py-2 border border-gray-200 rounded-xl text-center text-xs font-bold text-brand-dark bg-[#FAFAFA] shadow-xs">
+                            {formData.timeAllowed} min
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Answer Key Toggle Switch */}
+                      <div className="flex items-center justify-between p-4 bg-[#FAFAFA] border border-gray-200 rounded-2xl shadow-xs">
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-bold text-brand-dark">Include Complete Answer Key</p>
+                          <p className="text-[10px] text-brand-secondary">Generate reference explanations for grading.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.includeAnswerKey}
+                            onChange={(e) => setFormData({ includeAnswerKey: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-orange"></div>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Difficulty balancing */}
+                    <div className="space-y-4 p-5 border border-gray-150 rounded-2xl bg-white shadow-xs">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                        <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
+                          Difficulty Balance
+                        </label>
+                        <div className="text-xs font-bold text-brand-orange bg-orange-50 border border-orange-100 px-2.5 py-0.5 rounded-full shadow-xs">
+                          Sum: {formData.difficulty.easy + formData.difficulty.medium + formData.difficulty.hard}%
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        {/* Easy */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-semibold text-green-600">Easy Questions</span>
+                            <span className="font-bold text-brand-dark">{formData.difficulty.easy}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={formData.difficulty.easy}
+                            onChange={(e) => handleDifficultyChange("easy", parseInt(e.target.value))}
+                            className="w-full accent-green-500 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Medium */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-semibold text-amber-500">Medium Questions</span>
+                            <span className="font-bold text-brand-dark">{formData.difficulty.medium}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={formData.difficulty.medium}
+                            onChange={(e) => handleDifficultyChange("medium", parseInt(e.target.value))}
+                            className="w-full accent-amber-500 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Hard */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-semibold text-red-500">Hard Questions</span>
+                            <span className="font-bold text-brand-dark">{formData.difficulty.hard}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={formData.difficulty.hard}
+                            onChange={(e) => handleDifficultyChange("hard", parseInt(e.target.value))}
+                            className="w-full accent-red-500 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Locked Translucent Bottom Bar (aligned matching rounded-b-[40px]) */}
+          <div
+            className="absolute bottom-0 left-0 right-0 h-[73px] rounded-b-[40px] border-t border-gray-200/40 px-8 flex items-center justify-between pointer-events-auto z-20"
+            style={{
+              background: "linear-gradient(176.12deg, rgba(234, 234, 234, 0) 3.17%, rgba(218, 218, 218, 0.35) 81.22%)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)"
+            }}
+          >
+            {/* Previous button */}
+            <button
+              type="button"
+              onClick={activeStep === 1 ? () => router.push("/assignments") : () => setActiveStep(1)}
+              className="px-6 py-2 bg-white border border-gray-250 hover:bg-gray-55 text-brand-dark font-semibold rounded-full text-xs flex items-center space-x-2 transition-all shadow-sm active:scale-95"
+            >
+              <ArrowLeft className="w-4 h-4 text-brand-dark" />
+              <span>Previous</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={activeStep === 1 ? handleNextStep : handleSubmit}
+              className="px-6 py-2 bg-[#181818] hover:bg-black text-white font-bold rounded-full text-xs flex items-center space-x-2 transition-all shadow-md active:scale-95"
+            >
+              <span>{activeStep === 1 ? "Next" : "Generate"}</span>
+              {activeStep === 2 && <span className="text-[9px] border border-white/30 rounded px-1 opacity-70">Ctrl+G</span>}
+              <ArrowRight className="w-4 h-4 text-white" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {activeStep === 1 ? (
-        /* STEP 1 FORM */
-        <div className="p-6 md:p-8 space-y-6">
-          
-          {/* Due date and Upload row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Due Date Input Card */}
-            <div className="md:col-span-1 space-y-2">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                Due Date
-              </label>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={formData.dueDate}
-                  onChange={(e) => setFormData({ dueDate: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-semibold"
-                />
-              </div>
-              <p className="text-[10px] text-brand-secondary">
-                Students must submit by this day.
-              </p>
-            </div>
 
-            {/* Drag & Drop Upload Zone */}
-            <div className="md:col-span-2 space-y-2">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                Curriculum Documents (Optional)
-              </label>
-              
+      {/* ----------------- MOBILE VIEW (smaller than lg) ----------------- */}
+      <div className="flex lg:hidden flex-col w-full max-w-[393px] mx-auto relative font-sans animate-fadeIn pb-[110px]">
+        {/* Mobile Header (Frame 1984077205) */}
+        <div
+          className="w-full h-[81px] flex flex-row items-center justify-between px-5 pointer-events-auto mt-[8px] rounded-2xl"
+          style={{
+            background: "rgba(255, 255, 255, 0.01)",
+            backdropFilter: "blur(0px)",
+            WebkitBackdropFilter: "blur(0px)"
+          }}
+        >
+          {/* Back Circular Button */}
+          <button
+            type="button"
+            onClick={activeStep === 1 ? () => router.push("/assignments") : () => setActiveStep(1)}
+            className="w-10 h-10 rounded-full bg-white border border-gray-150 flex items-center justify-center hover:bg-gray-55 active:scale-90 transition-all shadow-sm"
+          >
+            <ArrowLeft className="w-4.5 h-4.5 text-brand-dark" />
+          </button>
+
+          {/* Mobile Title */}
+          <h2 className="text-[20px] font-bold text-brand-dark font-bricolage flex-grow text-center tracking-tight pr-6">
+            Create Assignment
+          </h2>
+        </div>
+
+        {/* Mobile Two-part Progress Bar */}
+        <div className="w-full px-5 mt-2 flex items-center gap-1">
+          <div className={`h-1 rounded-l-full flex-grow transition-all duration-300 ${activeStep >= 1 ? "bg-[#4D4D4D]" : "bg-[#D9D9D9]"}`} />
+          <div className={`h-1 rounded-r-full flex-grow transition-all duration-300 ${activeStep >= 2 ? "bg-[#4D4D4D]" : "bg-[#D9D9D9]"}`} />
+        </div>
+
+        {/* Scrollable Container (Frame 1984077582) */}
+        <div className="w-full px-3 mt-6 space-y-6 flex flex-col">
+
+          {activeStep === 1 ? (
+            /* --- Step 1 Mobile Content --- */
+            <div className="bg-white border border-gray-150 rounded-[28px] p-6 space-y-6 shadow-sm animate-fadeIn">
+
+              <div>
+                <h3 className="text-lg font-bold text-[#1A1A1A] font-bricolage leading-none">Assignment Details</h3>
+                <p className="text-[10px] text-brand-secondary mt-1">Basic information about your assignment</p>
+              </div>
+
+              {/* Ordered Layout: File Upload Dashed Container FIRST */}
               <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center transition-all ${
-                  formData.file 
-                    ? "border-green-250 bg-green-50/20" 
-                    : isDragActive 
-                    ? "border-brand-orange bg-orange-50/20" 
-                    : "border-gray-200 hover:border-brand-orange bg-gray-55"
-                }`}
+                className={`border border-dashed rounded-[20px] p-4 flex flex-col items-center justify-center text-center transition-all ${formData.file
+                  ? "border-green-250 bg-green-50/10"
+                  : isDragActive
+                    ? "border-brand-orange bg-orange-50/15"
+                    : "border-[#CCCCCC] bg-[#FAFAFA] shadow-xs"
+                  }`}
               >
                 <input
                   type="file"
-                  id="file-upload"
+                  id="mobile-file-upload"
                   onChange={handleFileChange}
                   accept=".pdf,.txt,.png,.jpg,.jpeg"
                   className="hidden"
                 />
-                
+
                 {formData.file ? (
-                  <div className="flex items-center space-x-2.5">
-                    <div className="p-2 bg-green-100 text-green-600 rounded-lg">
-                      <Check className="w-5 h-5" />
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
+                      <Check className="w-4 h-4 text-green-600" />
                     </div>
-                    <div className="text-left">
-                      <p className="text-xs font-semibold text-brand-dark truncate max-w-[200px]">
+                    <div className="text-center">
+                      <p className="text-xs font-bold text-brand-dark truncate max-w-[220px]">
                         {formData.file.name}
                       </p>
-                      <p className="text-[10px] text-brand-secondary">
-                        {(formData.file.size / 1024).toFixed(1)} KB • Click to replace
+                      <p className="text-[9px] text-brand-secondary">
+                        {(formData.file.size / 1024).toFixed(1)} KB
                       </p>
                     </div>
                     <label
-                      htmlFor="file-upload"
-                      className="text-xs font-semibold text-brand-orange hover:underline cursor-pointer ml-4"
+                      htmlFor="mobile-file-upload"
+                      className="text-[11px] font-bold text-brand-orange hover:underline cursor-pointer"
                     >
-                      Change
+                      Change File
                     </label>
                   </div>
                 ) : (
-                  <label htmlFor="file-upload" className="cursor-pointer space-y-1">
-                    <Upload className="w-6 h-6 text-brand-orange mx-auto stroke-[1.5]" />
-                    <p className="text-xs font-semibold text-brand-dark">
-                      Drag file here or <span className="text-brand-orange hover:underline">browse</span>
+                  <label htmlFor="mobile-file-upload" className="cursor-pointer flex flex-col items-center gap-1 w-full">
+                    <div className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center text-brand-gray shadow-xs border border-gray-200 mb-1">
+                      <Upload className="w-4.5 h-4.5 text-brand-gray" />
+                    </div>
+                    <p className="text-xs font-bold text-[#1A1A1A]">
+                      Choose a file or drag & drop it here
                     </p>
                     <p className="text-[9px] text-brand-secondary">
-                      Supports PDF, TXT, PNG, JPG (Max 10MB)
+                      JPEG, PNG, upto 10MB
                     </p>
+                    <div className="px-4 py-1 bg-white border border-gray-200 rounded-full text-[10px] font-bold text-brand-dark active:scale-95 transition-all mt-1 shadow-xs">
+                      Browse Files
+                    </div>
                   </label>
                 )}
               </div>
-            </div>
-          </div>
+              <p className="text-[10px] text-brand-secondary text-center leading-none">
+                Upload images of your preferred document/image
+              </p>
 
-          {/* Question Builder Row Dynamic Builder */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                Question Blueprints
-              </label>
-              <div className="text-xs font-semibold text-brand-secondary flex items-center space-x-3">
-                <span>Total Qs: <strong className="text-brand-dark">{totalQuestions}</strong></span>
-                <span>Total Marks: <strong className="text-brand-orange">{totalMarks}</strong></span>
+              {/* Ordered Layout: Due Date box SECOND */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                  Due Date
+                </label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) => setFormData({ dueDate: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-[#FAFAFA] border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-brand-orange font-bold text-brand-dark cursor-pointer shadow-xs"
+                  />
+                  <Calendar className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
               </div>
-            </div>
 
-            {/* Questions Table */}
-            <div className="border border-gray-150 rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-150 text-brand-secondary font-semibold">
-                    <th className="px-4 py-3">Question Type</th>
-                    <th className="px-4 py-3 text-center">Count</th>
-                    <th className="px-4 py-3 text-center">Marks Per Question</th>
-                    <th className="px-4 py-3 text-right">Subtotal</th>
-                    <th className="px-4 py-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
+              {/* Ordered Layout: Question Types Blueprint Row-wise THIRD */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                  Question Type
+                </label>
+
+                <div className="space-y-3">
                   {formData.questionRows.map((row: QuestionRow) => (
-                    <tr key={row.id} className="hover:bg-gray-50/50">
-                      <td className="px-4 py-2.5">
+                    <div
+                      key={row.id}
+                      className="flex flex-row items-center justify-between gap-2.5 p-3.5 bg-white rounded-2xl border border-gray-150 shadow-xs animate-fadeIn"
+                    >
+                      {/* Dropdown Type Selector */}
+                      <div className="relative flex-grow min-w-[120px]">
                         <select
                           value={row.type}
                           onChange={(e) => updateQuestionRow(row.id, { type: e.target.value })}
-                          className="px-2 py-1.5 bg-white border border-gray-200 rounded-md focus:outline-none focus:border-brand-orange"
+                          className="w-full pl-2 pr-6 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-orange text-[10px] font-semibold text-brand-dark appearance-none pr-8 cursor-pointer"
                         >
-                          <option value="MCQ">Multiple Choice (MCQ)</option>
-                          <option value="Short Answer">Short Answer</option>
+                          <option value="MCQ">Multiple Choice Questions</option>
+                          <option value="Short Answer">Short Questions</option>
+                          <option value="Diagram/Graph-Based Questions">Diagram/Graph Questions</option>
+                          <option value="Numerical Problems">Numerical Problems</option>
                           <option value="Long Answer">Long Answer</option>
                           <option value="True/False">True / False</option>
                           <option value="Fill in the Blanks">Fill in the Blanks</option>
-                          <option value="Diagram/Graph-Based Questions">Diagram/Graph-Based Questions</option>
-                          <option value="Numerical Problems">Numerical Problems</option>
                           <option value="Essay Questions">Essay Questions</option>
                         </select>
-                      </td>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+                      </div>
 
-                      {/* Count Stepper */}
-                      <td className="px-4 py-2.5 text-center">
-                        <div className="inline-flex items-center space-x-1.5 bg-gray-50 border border-gray-200 rounded-lg p-1">
-                          <button
-                            type="button"
-                            onClick={() => adjustCount(row.id, -1)}
-                            className="w-5 h-5 flex items-center justify-center bg-white hover:bg-gray-100 border border-gray-200 rounded font-bold text-brand-dark"
-                          >
-                            -
-                          </button>
-                          <span className="w-6 font-semibold text-brand-dark">{row.count}</span>
-                          <button
-                            type="button"
-                            onClick={() => adjustCount(row.id, 1)}
-                            className="w-5 h-5 flex items-center justify-center bg-white hover:bg-gray-100 border border-gray-200 rounded font-bold text-brand-dark"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </td>
+                      <button
+                        type="button"
+                        onClick={() => removeQuestionRow(row.id)}
+                        disabled={formData.questionRows.length <= 1}
+                        className="text-gray-400 hover:text-red-500 font-sans text-xl font-bold p-1 disabled:opacity-20 transition-all active:scale-75"
+                      >
+                        ×
+                      </button>
 
-                      {/* Marks Stepper */}
-                      <td className="px-4 py-2.5 text-center">
-                        <div className="inline-flex items-center space-x-1.5 bg-gray-50 border border-gray-200 rounded-lg p-1">
-                          <button
-                            type="button"
-                            onClick={() => adjustMarks(row.id, -1)}
-                            className="w-5 h-5 flex items-center justify-center bg-white hover:bg-gray-100 border border-gray-200 rounded font-bold text-brand-dark"
-                          >
-                            -
-                          </button>
-                          <span className="w-6 font-semibold text-brand-dark">{row.marksPerQuestion}</span>
-                          <button
-                            type="button"
-                            onClick={() => adjustMarks(row.id, 1)}
-                            className="w-5 h-5 flex items-center justify-center bg-white hover:bg-gray-100 border border-gray-200 rounded font-bold text-brand-dark"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-2.5 text-right font-semibold text-brand-dark">
-                        {row.count * row.marksPerQuestion} pts
-                      </td>
-
-                      <td className="px-4 py-2.5 text-center">
+                      {/* No. of Questions Stepper capsule */}
+                      <div className="inline-flex items-center bg-[#F2F2F2] rounded-full px-2 py-1 gap-1.5 border border-gray-150/40 w-[64px] justify-between shadow-inner flex-shrink-0">
                         <button
                           type="button"
-                          onClick={() => removeQuestionRow(row.id)}
-                          disabled={formData.questionRows.length <= 1}
-                          className="p-1.5 text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:hover:text-gray-400 rounded-md hover:bg-gray-100 transition-colors"
+                          onClick={() => adjustCount(row.id, -1)}
+                          className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-200 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          -
                         </button>
-                      </td>
-                    </tr>
+                        <span className="font-bold text-brand-dark text-xs">{row.count}</span>
+                        <button
+                          type="button"
+                          onClick={() => adjustCount(row.id, 1)}
+                          className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-200 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Marks Stepper capsule */}
+                      <div className="inline-flex items-center bg-[#F2F2F2] rounded-full px-2 py-1 gap-1.5 border border-gray-150/40 w-[64px] justify-between shadow-inner flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => adjustMarks(row.id, -1)}
+                          className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-200 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                        >
+                          -
+                        </button>
+                        <span className="font-bold text-brand-dark text-xs">{row.marksPerQuestion}</span>
+                        <button
+                          type="button"
+                          onClick={() => adjustMarks(row.id, 1)}
+                          className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-200 active:scale-75 font-bold text-gray-400 text-xs transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
-
-            <button
-              type="button"
-              onClick={addQuestionRow}
-              className="flex items-center space-x-1.5 px-3 py-1.5 text-xs text-brand-orange hover:bg-orange-50 border border-orange-200 rounded-lg transition-colors font-semibold"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Question Row</span>
-            </button>
-          </div>
-
-          {/* Voice Input Textarea */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-              Exam Outline & Specific Instructions
-            </label>
-            <div className="relative">
-              <textarea
-                value={formData.voicePrompt}
-                onChange={(e) => setFormData({ voicePrompt: e.target.value })}
-                placeholder="e.g. Create a biology quiz focused on Cell Division and Mitochondria. Include practical questions on chromosome counts during mitosis..."
-                rows={4}
-                className="w-full p-3.5 pr-32 bg-gray-55 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 resize-none"
-              />
-              <button
-                type="button"
-                onClick={startSpeechRecognition}
-                className={`absolute bottom-3 right-3 flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                  isListening
-                    ? "bg-red-50 text-red-500 border-red-200 animate-pulse"
-                    : "bg-orange-50 text-brand-orange border-orange-200 hover:bg-orange-100"
-                }`}
-              >
-                {isListening ? (
-                  <>
-                    <MicOff className="w-3.5 h-3.5" />
-                    <span>Stop Listening</span>
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-3.5 h-3.5" />
-                    <span>Voice Input</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Nav buttons */}
-          <div className="flex justify-end pt-4 border-t border-gray-100">
-            <button
-              type="button"
-              onClick={handleNextStep}
-              className="px-5 py-2 bg-brand-dark hover:bg-black text-white font-semibold rounded-lg text-sm flex items-center space-x-1.5 transition-colors shadow-sm"
-            >
-              <span>Settings & Review</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-
-        </div>
-      ) : (
-        /* STEP 2 FORM */
-        <div className="p-6 md:p-8 space-y-6">
-          {loadingSettings ? (
-            <Step2SettingsSkeleton />
-          ) : (
-            <>
-              {/* Prefill School, Class, Subject */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                
-                {/* Subject Select */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                    Subject
-                  </label>
-                  <select
-                    value={formData.subject}
-                    onChange={(e) => setFormData({ subject: e.target.value })}
-                    className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
-                  >
-                    <option value="">-- Choose Subject --</option>
-                    <option value="Science">Science (Biology/Physics)</option>
-                    <option value="Mathematics">Mathematics</option>
-                    <option value="English">English Literature</option>
-                    <option value="History">History & Social Studies</option>
-                    <option value="Geography">Geography</option>
-                  </select>
                 </div>
 
-                {/* Class Grade Select */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block">
-                    Class / Grade
-                  </label>
-                  <select
-                    value={formData.grade}
-                    onChange={(e) => setFormData({ grade: e.target.value })}
-                    className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-medium"
+                {/* Add button & totals for mobile */}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={addQuestionRow}
+                    className="flex items-center space-x-2 text-xs font-bold text-brand-dark hover:opacity-80 active:scale-95 transition-all"
                   >
-                    <option value="">-- Choose Grade --</option>
-                    <option value="Class 8">Class 8</option>
-                    <option value="Grade 9">Grade 9</option>
-                    <option value="Class 10">Class 10</option>
-                    <option value="Grade 11">Grade 11</option>
-                    <option value="Grade 12">Grade 12</option>
-                  </select>
-                </div>
+                    <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center shadow-xs">
+                      <Plus className="w-3.5 h-3.5 text-white stroke-[2.5]" />
+                    </div>
+                    <span>Add Question Type</span>
+                  </button>
 
-                {/* School Name Prefill */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
-                    <School className="w-3.5 h-3.5 text-gray-400" />
-                    <span>School Name Prefill</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.schoolName}
-                    onChange={(e) => setFormData({ schoolName: e.target.value })}
-                    className="w-full p-2.5 bg-gray-55 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/20 font-semibold"
-                    placeholder="Veda International School"
+                  <div className="flex flex-col items-end gap-0.5 text-right font-sans text-xs">
+                    <div className="text-brand-secondary font-medium">Total Questions : <span className="font-bold text-brand-dark">{totalQuestions}</span></div>
+                    <div className="text-brand-secondary font-medium">Total Marks : <span className="font-bold text-brand-dark">{totalMarks}</span></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Textarea outline prompt */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Additional Information (For better output)</label>
+                <div className="relative border border-dashed border-gray-300 rounded-[18px] p-0.5 bg-[#FAFAFA] shadow-xs">
+                  <textarea
+                    value={formData.voicePrompt}
+                    onChange={(e) => setFormData({ voicePrompt: e.target.value })}
+                    placeholder="e.g Generate a question paper for 3 hour exam duration.."
+                    rows={4}
+                    className="w-full bg-transparent p-3 pr-12 text-xs focus:outline-none resize-none font-semibold text-brand-dark"
                   />
+                  <button
+                    type="button"
+                    onClick={startSpeechRecognition}
+                    className={`absolute bottom-3 right-3 p-2 rounded-full transition-all ${isListening
+                      ? "bg-red-50 text-red-500 animate-pulse border border-red-250"
+                      : "text-gray-400 bg-white border border-gray-150 shadow-xs active:scale-80"
+                      }`}
+                  >
+                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               </div>
 
-              {/* Time Limit Allowed */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-brand-dark uppercase tracking-wider block flex items-center space-x-1">
-                    <Clock className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Time Allowed (Minutes)</span>
-                  </label>
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="range"
-                      min="15"
-                      max="180"
-                      step="15"
-                      value={formData.timeAllowed}
-                      onChange={(e) => setFormData({ timeAllowed: parseInt(e.target.value) })}
-                      className="flex-1 accent-brand-orange"
-                    />
-                    <span className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-center text-sm font-bold text-brand-dark bg-gray-50">
-                      {formData.timeAllowed} min
-                    </span>
-                  </div>
-                </div>
+            </div>
+          ) : (
+            /* --- Step 2 Mobile Content --- */
+            <div className="bg-white border border-gray-150 rounded-[28px] p-6 space-y-6 shadow-sm animate-fadeIn">
 
-                {/* Answer Key Toggle Switch */}
-                <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-150 rounded-xl">
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-bold text-brand-dark">Include Complete Answer Key</p>
-                    <p className="text-[10px] text-brand-secondary">Generate reference explanations for grading.</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.includeAnswerKey}
-                      onChange={(e) => setFormData({ includeAnswerKey: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-orange"></div>
-                  </label>
-                </div>
+              <div>
+                <h3 className="text-lg font-bold text-[#1A1A1A] font-bricolage leading-none">Assessment Settings</h3>
+                <p className="text-[10px] text-brand-secondary mt-1">Configure parameters and difficulty</p>
               </div>
 
-              {/* Difficulty Sliders Auto-Balancing */}
-              <div className="space-y-4 p-4 border border-gray-150 rounded-xl bg-white shadow-sm">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider block">
-                    Difficulty Balance
-                  </label>
-                  <div className="text-xs font-semibold text-brand-orange bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full">
-                    Sum: {formData.difficulty.easy + formData.difficulty.medium + formData.difficulty.hard}%
-                  </div>
-                </div>
-
+              {loadingSettings ? (
+                <Step2SettingsSkeleton />
+              ) : (
                 <div className="space-y-4">
-                  {/* Easy Slider */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-green-600">Easy Questions</span>
-                      <span className="font-bold text-brand-dark">{formData.difficulty.easy}%</span>
-                    </div>
+                  {/* Subject select */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                      Subject
+                    </label>
+                    <select
+                      value={formData.subject}
+                      onChange={(e) => setFormData({ subject: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#FAFAFA] border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-brand-orange font-bold text-brand-dark shadow-xs"
+                    >
+                      <option value="">-- Choose Subject --</option>
+                      <option value="Science">Science (Biology/Physics)</option>
+                      <option value="Mathematics">Mathematics</option>
+                      <option value="English">English Literature</option>
+                      <option value="History">History & Social Studies</option>
+                      <option value="Geography">Geography</option>
+                    </select>
+                  </div>
+
+                  {/* Class grade select */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                      Class / Grade
+                    </label>
+                    <select
+                      value={formData.grade}
+                      onChange={(e) => setFormData({ grade: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#FAFAFA] border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-brand-orange font-bold text-brand-dark shadow-xs"
+                    >
+                      <option value="">-- Choose Grade --</option>
+                      <option value="Class 8">Class 8</option>
+                      <option value="Grade 9">Grade 9</option>
+                      <option value="Class 10">Class 10</option>
+                      <option value="Grade 11">Grade 11</option>
+                      <option value="Grade 12">Grade 12</option>
+                    </select>
+                  </div>
+
+                  {/* School prefill */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block flex items-center gap-1">
+                      <School className="w-3.5 h-3.5 text-gray-400" />
+                      <span>School Name Prefill</span>
+                    </label>
                     <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={formData.difficulty.easy}
-                      onChange={(e) => handleDifficultyChange("easy", parseInt(e.target.value))}
-                      className="w-full accent-green-500"
+                      type="text"
+                      value={formData.schoolName}
+                      onChange={(e) => setFormData({ schoolName: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#FAFAFA] border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-brand-orange font-bold text-brand-dark shadow-xs"
+                      placeholder="Delhi Public School"
                     />
                   </div>
 
-                  {/* Medium Slider */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-amber-500">Medium Questions</span>
-                      <span className="font-bold text-brand-dark">{formData.difficulty.medium}%</span>
+                  {/* Time allowed */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-gray-400" />
+                      <span>Time Allowed</span>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min="15"
+                        max="180"
+                        step="15"
+                        value={formData.timeAllowed}
+                        onChange={(e) => setFormData({ timeAllowed: parseInt(e.target.value) })}
+                        className="flex-grow accent-brand-orange"
+                      />
+                      <span className="w-18 px-2 py-1.5 border border-gray-200 rounded-lg text-center text-xs font-bold text-brand-dark bg-white shadow-xs">
+                        {formData.timeAllowed}m
+                      </span>
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={formData.difficulty.medium}
-                      onChange={(e) => handleDifficultyChange("medium", parseInt(e.target.value))}
-                      className="w-full accent-amber-500"
-                    />
                   </div>
 
-                  {/* Hard Slider */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-red-500">Hard Questions</span>
-                      <span className="font-bold text-brand-dark">{formData.difficulty.hard}%</span>
+                  {/* Complete Answer Key toggle */}
+                  <div className="flex items-center justify-between p-3.5 bg-[#FAFAFA] border border-gray-150 rounded-2xl shadow-xs">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-brand-dark">Include Answer Key</p>
+                      <p className="text-[9px] text-brand-secondary">Generate reference explanations.</p>
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={formData.difficulty.hard}
-                      onChange={(e) => handleDifficultyChange("hard", parseInt(e.target.value))}
-                      className="w-full accent-red-500"
-                    />
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.includeAnswerKey}
+                        onChange={(e) => setFormData({ includeAnswerKey: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-orange"></div>
+                    </label>
+                  </div>
+
+                  {/* Difficulty sliders */}
+                  <div className="space-y-3.5 p-3.5 border border-gray-150 rounded-2xl bg-white shadow-xs">
+                    <div className="flex items-center justify-between border-b border-gray-100 pb-1.5">
+                      <label className="text-[10px] font-bold text-[#1A1A1A] uppercase tracking-wider block">
+                        Difficulty Balance
+                      </label>
+                      <div className="text-[10px] font-bold text-brand-orange bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full">
+                        {formData.difficulty.easy + formData.difficulty.medium + formData.difficulty.hard}%
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {/* Easy */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="font-semibold text-green-600">Easy</span>
+                          <span className="font-bold text-brand-dark">{formData.difficulty.easy}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={formData.difficulty.easy}
+                          onChange={(e) => handleDifficultyChange("easy", parseInt(e.target.value))}
+                          className="w-full accent-green-500"
+                        />
+                      </div>
+
+                      {/* Medium */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="font-semibold text-amber-500">Medium</span>
+                          <span className="font-bold text-brand-dark">{formData.difficulty.medium}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={formData.difficulty.medium}
+                          onChange={(e) => handleDifficultyChange("medium", parseInt(e.target.value))}
+                          className="w-full accent-amber-500"
+                        />
+                      </div>
+
+                      {/* Hard */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="font-semibold text-red-500">Hard</span>
+                          <span className="font-bold text-brand-dark">{formData.difficulty.hard}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={formData.difficulty.hard}
+                          onChange={(e) => handleDifficultyChange("hard", parseInt(e.target.value))}
+                          className="w-full accent-red-500"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Action Row */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setActiveStep(1)}
-                  className="px-4 py-2 border border-gray-250 hover:bg-gray-50 text-brand-dark font-semibold rounded-lg text-sm flex items-center space-x-1.5 transition-colors"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Back to Step 1</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  className="px-6 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] hover:brightness-105 active:scale-95 text-white font-bold rounded-lg text-sm flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/10"
-                >
-                  <Sparkles className="w-4.5 h-4.5" />
-                  <span>Generate Assessment</span>
-                  <span className="shortcut-hint" style={{ fontSize: '11px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '4px', padding: '2px 5px', color: '#FFF', marginLeft: '8px', opacity: 0.9 }}>Ctrl+G</span>
-                </button>
-              </div>
-            </>
+            </div>
           )}
+
         </div>
-      )}
-    </div>
+
+        {/* Floating Mobile Bottom Action Overlay (placed fixed at bottom-0, above the suppressed global bottom bar) */}
+        <div
+          className="fixed bottom-0 left-0 right-0 h-[82px] pb-[16px] px-6 py-4 flex items-center justify-between gap-4 pointer-events-auto border-t border-gray-200/40 z-30"
+          style={{
+            background: "rgba(255, 255, 255, 0.8)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)"
+          }}
+        >
+          {/* Previous button */}
+          <button
+            type="button"
+            onClick={activeStep === 1 ? () => router.push("/assignments") : () => setActiveStep(1)}
+            className="flex-1 py-2.5 bg-white border border-gray-200 text-brand-dark font-bold rounded-full text-xs flex items-center justify-center space-x-1.5 shadow-sm active:scale-95 transition-transform"
+          >
+            <ArrowLeft className="w-4 h-4 text-brand-dark" />
+            <span>Previous</span>
+          </button>
+
+          {/* Next / Generate */}
+          <button
+            type="button"
+            onClick={activeStep === 1 ? handleNextStep : handleSubmit}
+            className="flex-1 py-2.5 bg-[#181818] text-white font-bold rounded-full text-xs flex items-center justify-center space-x-1.5 shadow-md active:scale-95 transition-transform"
+          >
+            <span>{activeStep === 1 ? "Next" : "Generate"}</span>
+            {activeStep === 2 && <span className="text-[9px] border border-white/30 rounded px-1 opacity-70">Ctrl+G</span>}
+            <ArrowRight className="w-4 h-4 text-white" />
+          </button>
+        </div>
+      </div>
+
+    </ErrorBoundary>
   );
 }

@@ -18,7 +18,9 @@ const assignmentRoutes_1 = __importDefault(require("./routes/assignmentRoutes"))
 const groupRoutes_1 = __importDefault(require("./routes/groupRoutes"));
 const settingsRoutes_1 = __importDefault(require("./routes/settingsRoutes"));
 const activityRoutes_1 = __importDefault(require("./routes/activityRoutes"));
+const resultRoutes_1 = __importDefault(require("./routes/resultRoutes"));
 const errorHandler_1 = require("./middlewares/errorHandler");
+const assignmentController_1 = require("./controllers/assignmentController");
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
 // Initialize Socket.io
@@ -48,6 +50,8 @@ app.use('/api/assignments', assignmentRoutes_1.default);
 app.use('/api/groups', groupRoutes_1.default);
 app.use('/api/settings', settingsRoutes_1.default);
 app.use('/api/activity', activityRoutes_1.default);
+app.use('/api/results', resultRoutes_1.default);
+app.get('/api/stats', assignmentController_1.getAssignmentStats);
 // Base route for health check
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });

@@ -34,27 +34,47 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Assignment = void 0;
+// apps/backend/src/models/Assignment.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const AssignmentSchema = new mongoose_1.Schema({
-    title: { type: String, required: true, trim: true },
-    subject: { type: String, required: true, trim: true },
-    gradeLevel: { type: String, required: true, trim: true },
-    topic: { type: String, required: true, trim: true },
-    difficulty: { type: String, enum: ['easy', 'medium', 'hard'], required: true },
-    numberOfQuestions: { type: Number, required: true, min: 1 },
-    questionType: { type: String, enum: ['mcq', 'short', 'long', 'mixed'], required: true },
+    title: { type: String, required: true },
+    subject: { type: String, required: true },
+    className: { type: String, required: true },
+    schoolName: { type: String, required: true },
+    timeAllowed: { type: Number, required: true },
+    dueDate: { type: Date, required: true },
+    questionTypes: [
+        {
+            type: { type: String, required: true },
+            count: { type: Number, required: true },
+            marksPerQuestion: { type: Number, required: true },
+        },
+    ],
+    difficultyDistribution: {
+        easy: { type: Number, required: true },
+        medium: { type: Number, required: true },
+        hard: { type: Number, required: true },
+    },
+    additionalInstructions: { type: String, default: '' },
+    uploadedFileUrl: { type: String },
+    extractedText: { type: String },
+    includeAnswerKey: { type: Boolean, default: false },
     status: {
         type: String,
         enum: ['pending', 'processing', 'completed', 'failed'],
         default: 'pending',
     },
     error: { type: String },
-    sourceMaterial: { type: String },
+    jobId: { type: String },
+    resultId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Result' },
     deleted: { type: Boolean, default: false },
-    schoolName: { type: String },
-    timeAllowed: { type: Number },
-    includeAnswerKey: { type: Boolean, default: true },
-    questionRows: { type: mongoose_1.Schema.Types.Mixed },
-    grade: { type: String },
+    version: { type: Number, default: 1 },
+    versionHistory: [
+        {
+            version: { type: Number, required: true },
+            timestamp: { type: String, required: true },
+            questionsCount: { type: Number, required: true },
+        }
+    ],
 }, { timestamps: true });
 exports.Assignment = mongoose_1.default.model('Assignment', AssignmentSchema);

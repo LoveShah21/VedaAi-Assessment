@@ -9,6 +9,10 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-inter)", "sans-serif"],
+        bricolage: ["var(--font-bricolage)", "sans-serif"],
+      },
       colors: {
         brand: {
           orange: "#F15A22",

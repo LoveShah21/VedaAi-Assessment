@@ -25,9 +25,17 @@ body {
 }
 
 @media print {
+  /* @page margin:0 suppresses browser-generated running URL/date headers & footers */
+  @page {
+    margin: 0;
+    size: A4 portrait;
+  }
   body {
+    margin: 0;
     background-color: white !important;
     color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .no-print {
     display: none !important;
@@ -36,7 +44,8 @@ body {
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
-    padding: 0 !important;
+    /* Internal padding replaces page margins */
+    padding: 22mm 18mm !important;
     border: none !important;
     box-shadow: none !important;
     background: white !important;
@@ -49,5 +58,3 @@ body {
 .avatar-bg-2 { background-color: #dcfce7; color: #15803d; }
 .avatar-bg-3 { background-color: #f3e8ff; color: #6b21a8; }
 .avatar-bg-4 { background-color: #fef3c7; color: #b45309; }
-
-

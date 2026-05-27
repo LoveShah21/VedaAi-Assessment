@@ -3,30 +3,37 @@ import puppeteer from 'puppeteer';
 import { IResult } from '../models/Result';
 import { IAssignment } from '../models/Assignment';
 
-function difficultyBadge(difficulty: string): string {
-  const styles: Record<string, string> = {
-    Easy: 'background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;',
-    Moderate: 'background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;',
-    Hard: 'background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;',
-  };
-  return `<span style="${styles[difficulty] ?? styles['Easy']}">${difficulty}</span>`;
-}
-
 function buildHtml(result: IResult, assignment: IAssignment, includeAnswerKey: boolean): string {
   const sectionsHtml = result.sections
     .map(
       (section) => `
-      <div style="margin-bottom:24px;">
-        <h2 style="text-align:center;font-size:16px;font-weight:700;margin-bottom:4px;">${section.title}</h2>
-        <p style="font-weight:700;margin-bottom:2px;">${section.questionType}</p>
-        <p style="font-style:italic;margin-bottom:12px;font-size:13px;">${section.instruction}</p>
+      <div style="margin-bottom: 36px; page-break-inside: avoid;">
+        <!-- Section heading: left-aligned bold uppercase with bottom border (matches reference) -->
+        <div style="border-bottom: 1px solid #1A1A1A; padding-bottom: 4px; margin-bottom: 8px;">
+          <h2 style="font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+            ${section.title} &mdash; ${section.questionType}
+          </h2>
+        </div>
+        <!-- Italic instruction -->
+        <p style="font-style: italic; font-size: 12px; color: #1A1A1A; margin-bottom: 14px;">
+          ${section.instruction}
+        </p>
+        <!-- Questions list -->
         ${section.questions
           .map(
             (q) => `
-          <p style="margin-bottom:10px;font-size:13px;">
-            <strong>${q.number}.</strong> ${difficultyBadge(q.difficulty)} ${q.text}
-            <span style="float:right;font-weight:600;">[${q.marks} Mark${q.marks > 1 ? 's' : ''}]</span>
-          </p>`
+        <div style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 10px; font-size: 13px; line-height: 1.6;">
+          <span style="font-weight: 700; flex-shrink: 0; width: 24px; text-align: right;">${q.number}.</span>
+          <div style="flex: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+            <span>
+              ${q.text}
+              <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: #6B7280; margin-left: 4px;">(${q.difficulty})</span>
+            </span>
+            <span style="flex-shrink: 0; font-weight: 700; font-size: 11px; padding: 1px 6px; white-space: nowrap;">
+              [${q.marks} ${q.marks === 1 ? 'Mark' : 'Marks'}]
+            </span>
+          </div>
+        </div>`
           )
           .join('')}
       </div>`
@@ -34,61 +41,117 @@ function buildHtml(result: IResult, assignment: IAssignment, includeAnswerKey: b
     .join('');
 
   const answerKeyHtml = includeAnswerKey
-    ? `<div style="margin-top:32px;border-top:2px solid #1A1A1A;padding-top:16px;">
-        <h2 style="font-weight:700;font-size:16px;margin-bottom:12px;">Answer Key:</h2>
+    ? `<div style="margin-top: 40px; padding-top: 16px; border-top: 2px dashed #1A1A1A; page-break-before: always;">
+        <h2 style="font-weight: 800; font-size: 14px; margin-bottom: 16px;">Answer Key:</h2>
         ${result.sections
-          .map((s) =>
-            s.questions
-              .map((q) => `<p style="font-size:13px;margin-bottom:6px;"><strong>${q.number}.</strong> ${q.answer}</p>`)
-              .join('')
-          )
-          .join('')}
+      .map(
+        (s) => `
+          <div style="margin-bottom: 20px;">
+            <h3 style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #6B7280; letter-spacing: 0.05em; border-bottom: 1px solid #E5E7EB; padding-bottom: 2px; margin-bottom: 8px;">
+              ${s.title}
+            </h3>
+            <ol style="padding-left: 20px; margin: 0; font-size: 13px;">
+              ${s.questions
+            .map(
+              (q) =>
+                `<li style="margin-bottom: 8px; line-height: 1.6; color: #1A1A1A;">${q.answer || 'No answer key provided.'}</li>`
+            )
+            .join('')}
+            </ol>
+          </div>`
+      )
+      .join('')}
        </div>`
     : '';
 
+  const totalMarks = result.totalMarks;
+
   return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Times New Roman', serif; font-size: 14px; color: #000; }
-    .clearfix::after { content: ''; display: table; clear: both; }
+    body {
+      font-family: 'Times New Roman', 'Georgia', serif;
+      font-size: 14px;
+      color: #1A1A1A;
+      background: white;
+    }
+    hr.solid {
+      border: none;
+      border-top: 1px solid #1A1A1A;
+      margin: 0;
+    }
+    @page {
+      margin: 22mm 18mm;
+      size: A4 portrait;
+    }
   </style>
 </head>
-<body style="padding: 40px;">
-  <div style="text-align:center;margin-bottom:20px;">
-    <h1 style="font-size:20px;font-weight:700;">${assignment.schoolName}</h1>
-    <p style="font-size:14px;margin-top:4px;">Subject: ${assignment.subject}</p>
-    <p style="font-size:14px;">Class: ${assignment.className}</p>
+<body>
+
+  <!-- ===== PAPER HEADER — centered school info (matches reference image) ===== -->
+  <div style="text-align: center; margin-bottom: 16px;">
+    <h1 style="font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;">
+      ${assignment.schoolName || 'Veda International School'}
+    </h1>
+    <p style="font-size: 13px; font-weight: 700; text-transform: uppercase; margin-top: 4px;">
+      ${assignment.title || `${assignment.subject} Examination`}
+    </p>
+    <p style="font-size: 13px; font-weight: 600; margin-top: 2px;">
+      ${assignment.className} &nbsp;|&nbsp; ${assignment.subject}
+    </p>
   </div>
 
-  <div class="clearfix" style="margin-bottom:12px;">
-    <span style="float:left;">Time Allowed: ${assignment.timeAllowed} minutes</span>
-    <span style="float:right;">Maximum Marks: ${result.totalMarks}</span>
+  <hr class="solid">
+
+  <!-- ===== EXAM METADATA ROW ===== -->
+  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; padding: 8px 0;">
+    <span>Time Allowed: ${assignment.timeAllowed} Minutes</span>
+    <span>Maximum Marks: ${totalMarks} Marks</span>
   </div>
 
-  <p style="font-weight:700;margin-bottom:16px;">All questions are compulsory unless stated otherwise.</p>
+  <hr class="solid" style="margin-bottom: 12px;">
 
-  <div style="margin-bottom:20px;border-top:1px solid #000;padding-top:12px;">
-    <p style="margin-bottom:8px;">Name: _______________________________________________</p>
-    <p style="margin-bottom:8px;">Roll Number: _______________________________________</p>
-    <p>Class: ${assignment.className} &nbsp;&nbsp; Section: ________________</p>
+  <!-- ===== GENERAL INSTRUCTIONS ===== -->
+  <p style="font-style: italic; font-size: 12px; color: #374151; margin-bottom: 16px;">
+    General Instructions: Read all questions carefully. All questions are compulsory unless stated otherwise.
+  </p>
+
+  <!-- ===== STUDENT DETAILS — plain text lines (matches reference) ===== -->
+  <div style="font-size: 13px; font-weight: 600; margin-bottom: 32px;">
+    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+      <span style="white-space: nowrap;">Student Name:</span>
+      <span style="flex: 1; border-bottom: 1px solid #1A1A1A; margin-left: 8px; height: 16px; display: inline-block;"></span>
+    </div>
+    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+      <span style="white-space: nowrap;">Roll Number:</span>
+      <span style="width: 160px; border-bottom: 1px solid #1A1A1A; margin-left: 8px; height: 16px; display: inline-block;"></span>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <span style="white-space: nowrap;">Class: ${assignment.className} Section:</span>
+      <span style="width: 80px; border-bottom: 1px solid #1A1A1A; margin-left: 8px; height: 16px; display: inline-block;"></span>
+    </div>
   </div>
 
-  <hr style="border:1px solid #000;margin-bottom:20px;">
-
+  <!-- ===== QUESTION SECTIONS ===== -->
   ${sectionsHtml}
 
-  <p style="text-align:center;font-weight:700;margin-top:32px;border-top:1px solid #000;padding-top:16px;">
-    — End of Question Paper —
+  <!-- ===== END OF PAPER ===== -->
+  <p style="text-align: center; font-weight: 700; font-size: 11px; margin-top: 48px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.08em;">
+    *** End of Question Paper ***
   </p>
 
+  <!-- Generation info footer -->
+  <p style="font-size: 10px; color: #9CA3AF; text-align: center; margin-top: 16px; padding-top: 8px; border-top: 1px solid #F3F4F6;">
+    Generated by VedaAI &bull; ${new Date(result.generatedAt).toLocaleString()} &bull; Version ${result.version}
+  </p>
+
+  <!-- ===== ANSWER KEY ===== -->
   ${answerKeyHtml}
 
-  <p style="font-size:10px;color:#666;text-align:center;margin-top:24px;border-top:1px solid #ddd;padding-top:8px;">
-    Generated by VedaAI &bull; OpenCode Zen &bull; ${new Date(result.generatedAt).toLocaleString()} &bull; Version ${result.version}
-  </p>
 </body>
 </html>`;
 }
@@ -98,10 +161,21 @@ export async function generatePdf(
   assignment: IAssignment,
   includeAnswerKey: boolean
 ): Promise<Buffer> {
-  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    headless: true,
+  });
   const page = await browser.newPage();
-  await page.setContent(buildHtml(result, assignment, includeAnswerKey), { waitUntil: 'networkidle0' });
-  const pdf = await page.pdf({ format: 'A4', margin: { top: '2cm', right: '2cm', bottom: '2cm', left: '2cm' }, printBackground: true });
+  await page.setContent(buildHtml(result, assignment, includeAnswerKey), {
+    waitUntil: 'networkidle0',
+  });
+  // @page CSS inside the HTML handles all margins — no extra margin here.
+  const pdf = await page.pdf({
+    format: 'A4',
+    printBackground: true,
+    // margins are driven by the @page rule in the HTML itself
+    margin: { top: '0', right: '0', bottom: '0', left: '0' },
+  });
   await browser.close();
   return Buffer.from(pdf);
 }

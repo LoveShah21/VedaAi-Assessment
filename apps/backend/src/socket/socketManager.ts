@@ -24,10 +24,24 @@ export const initSocket = (server: HttpServer): SocketIOServer => {
       }
     });
 
+    socket.on('join-job', (assignmentId: string) => {
+      if (assignmentId) {
+        socket.join(assignmentId);
+        console.log(`🔌 Client ${socket.id} joined job room ${assignmentId}`);
+      }
+    });
+
     socket.on('unsubscribe', (assignmentId: string) => {
       if (assignmentId) {
         socket.leave(assignmentId);
         console.log(`🔌 Client ${socket.id} unsubscribed from ${assignmentId}`);
+      }
+    });
+
+    socket.on('leave-job', (assignmentId: string) => {
+      if (assignmentId) {
+        socket.leave(assignmentId);
+        console.log(`🔌 Client ${socket.id} left job room ${assignmentId}`);
       }
     });
 

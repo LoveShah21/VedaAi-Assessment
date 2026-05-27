@@ -34,19 +34,34 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Result = void 0;
+// apps/backend/src/models/Result.ts
 const mongoose_1 = __importStar(require("mongoose"));
-const QuestionSchema = new mongoose_1.Schema({
-    questionText: { type: String, required: true },
-    options: { type: [String] },
-    correctAnswer: { type: String },
-    explanation: { type: String },
-    difficulty: { type: String, enum: ['easy', 'medium', 'hard'], required: true },
-    cognitiveLevel: { type: String },
-});
 const ResultSchema = new mongoose_1.Schema({
-    assignmentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Assignment', required: true, unique: true },
-    questions: { type: [QuestionSchema], required: true },
-    totalQuestions: { type: Number, required: true, default: 0 },
+    assignmentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Assignment', required: true },
+    sections: [
+        {
+            title: { type: String, required: true },
+            questionType: { type: String, required: true },
+            instruction: { type: String, required: true },
+            questions: [
+                {
+                    number: { type: Number, required: true },
+                    text: { type: String, required: true },
+                    difficulty: {
+                        type: String,
+                        enum: ['Easy', 'Moderate', 'Hard'],
+                        required: true,
+                    },
+                    marks: { type: Number, required: true },
+                    answer: { type: String, required: true },
+                },
+            ],
+        },
+    ],
+    totalMarks: { type: Number, required: true },
+    totalQuestions: { type: Number, required: true },
+    generatedAt: { type: Date, default: Date.now },
+    version: { type: Number, default: 1 },
     pdfUrl: { type: String },
-}, { timestamps: true });
+});
 exports.Result = mongoose_1.default.model('Result', ResultSchema);

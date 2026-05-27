@@ -3,101 +3,138 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateQuestions = void 0;
+exports.buildPrompt = buildPrompt;
+exports.generateQuestionPaper = generateQuestionPaper;
+// apps/backend/src/services/aiService.ts
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../config/env");
-function cleanJsonString(raw) {
-    let cleaned = raw.trim();
-    // Remove markdown code block prefixes if present
-    if (cleaned.startsWith('```json')) {
-        cleaned = cleaned.substring(7);
-    }
-    else if (cleaned.startsWith('```')) {
-        cleaned = cleaned.substring(3);
-    }
-    // Remove markdown code block suffixes if present
-    if (cleaned.endsWith('```')) {
-        cleaned = cleaned.substring(0, cleaned.length - 3);
-    }
-    return cleaned.trim();
-}
-const generateQuestions = async (params) => {
-    const { subject, gradeLevel, topic, difficulty, numberOfQuestions, questionType, sourceMaterial } = params;
-    const systemPrompt = `You are VedaAI, an expert educational assessment designer.
-Your task is to generate high-quality assessment questions based on the parameters provided.
-You MUST respond with a single valid JSON object containing a "questions" array.
-Do not include any introductory or concluding text, explanations, or markdown code block formatting in your response. The output must be raw, parsable JSON.
+function buildPrompt(assignment, extractedText) {
+    return `You are an expert educational assessment creator for Indian schools.
 
-Format structure:
+Generate a complete question paper with the following specifications:
+
+SCHOOL: ${assignment.schoolName}
+SUBJECT: ${assignment.subject}
+CLASS: ${assignment.className}
+TIME ALLOWED: ${assignment.timeAllowed} minutes
+
+QUESTION CONFIGURATION:
+${assignment.questionTypes
+        .map((qt, i) => `Section ${String.fromCharCode(65 + i)}: ${qt.type} — ${qt.count} questions × ${qt.marksPerQuestion} marks each`)
+        .join('\n')}
+
+DIFFICULTY DISTRIBUTION:
+- Easy: ${assignment.difficultyDistribution.easy}%
+- Moderate: ${assignment.difficultyDistribution.medium}%
+- Hard: ${assignment.difficultyDistribution.hard}%
+
+${extractedText ? `REFERENCE MATERIAL:\n${extractedText.slice(0, 3000)}` : ''}
+
+ADDITIONAL INSTRUCTIONS: ${assignment.additionalInstructions || 'None'}
+
+IMPORTANT: Your response must be ONLY a valid JSON object. Do not include any explanation, markdown, code fences, or thinking text. Start your response directly with { and end with }.
+
+Required JSON structure:
 {
-  "questions": [
+  "sections": [
     {
-      "questionText": "Question text here",
-      "options": ["A) option 1", "B) option 2", "C) option 3", "D) option 4"], // Required ONLY if type is MCQ or mixed (for MCQ questions). Provide exactly 4 options.
-      "correctAnswer": "A", // For MCQ, specify the option letter like 'A', 'B', 'C', or 'D'. For short/long answer, provide a brief sample answer.
-      "explanation": "Explanation of the correct answer.",
-      "difficulty": "easy", // Must be 'easy', 'medium', or 'hard'
-      "cognitiveLevel": "Remembering" // e.g., Remembering, Understanding, Applying, Analyzing, Evaluating, Creating (from Bloom's Taxonomy)
+      "title": "Section A",
+      "questionType": "MCQ",
+      "instruction": "Attempt all questions. Each question carries 2 marks.",
+      "questions": [
+        {
+          "number": 1,
+          "text": "Full question text here.",
+          "difficulty": "Easy",
+          "marks": 2,
+          "answer": "Model answer here."
+        }
+      ]
     }
   ]
+}`;
 }
-`;
-    const userPrompt = `Generate a test containing exactly ${numberOfQuestions} questions of type '${questionType}' at a '${difficulty}' difficulty level.
-Subject: ${subject}
-Grade Level: ${gradeLevel}
-Topic: ${topic}
-${sourceMaterial ? `Source Material: ${sourceMaterial}` : ''}
-`;
+/**
+ * Extract JSON from LLM response that may contain:
+ * - <think>...</think> reasoning blocks (DeepSeek, Qwen thinking models)
+ * - ```json ... ``` markdown code fences
+ * - Extra explanation text before/after the JSON object
+ */
+function extractJSON(raw) {
+    let text = raw.trim();
+    // 1. Strip <think>...</think> blocks (reasoning/thinking models)
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // 2. Strip markdown code fences
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    // 3. If it already starts with {, return directly
+    if (text.startsWith('{')) {
+        return text;
+    }
+    // 4. Find the first complete { ... } block
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        return jsonMatch[0];
+    }
+    // 5. Return as-is and let JSON.parse throw a clear error
+    return text;
+}
+async function callLLM(prompt) {
+    const apiKey = env_1.env.OPENCODE_API_KEY;
+    const model = env_1.env.OPENCODE_MODEL;
+    const apiUrl = env_1.env.OPENCODE_API_URL;
+    if (!apiKey || !model) {
+        throw new Error('OPENCODE_API_KEY and OPENCODE_MODEL must be set in environment variables');
+    }
+    console.log(`🤖 Calling LLM: model=${model}`);
+    const response = await axios_1.default.post(apiUrl, {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+    }, {
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        },
+        timeout: 120000, // 2 minutes — LLM can take time for large papers
+    });
+    if (!response.data || !response.data.choices || !response.data.choices[0]) {
+        throw new Error(`Invalid API Response structure: ${JSON.stringify(response.data)}`);
+    }
+    const content = response.data.choices[0].message.content;
+    const finishReason = response.data.choices[0].finish_reason;
+    console.log(`🤖 LLM responded: ${content?.length} chars, finish_reason=${finishReason}`);
+    console.log(`🤖 Preview: ${content?.substring(0, 200)}`);
+    return content;
+}
+async function generateQuestionPaper(assignment, extractedText) {
+    const prompt = buildPrompt(assignment, extractedText);
     let lastError = null;
-    const maxAttempts = 3;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            console.log(`🤖 AI Service: Attempt ${attempt}/${maxAttempts} to generate questions...`);
-            const response = await axios_1.default.post(env_1.env.OPENCODE_API_URL, {
-                model: env_1.env.OPENCODE_MODEL,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ],
-                temperature: 0.3,
-            }, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${env_1.env.OPENCODE_API_KEY}`,
-                },
-                timeout: 60000, // 60 seconds timeout
-            });
-            const content = response.data?.choices?.[0]?.message?.content;
-            if (!content) {
-                throw new Error('Empty response content from AI endpoint');
+            console.log(`🔄 AI generation attempt ${attempt}/3`);
+            const raw = await callLLM(prompt);
+            const cleaned = extractJSON(raw);
+            console.log(`🔄 Parsing JSON. Starts with: ${cleaned.substring(0, 80)}`);
+            const parsed = JSON.parse(cleaned);
+            if (!parsed.sections || !Array.isArray(parsed.sections)) {
+                throw new Error(`Response missing sections array. Got keys: ${Object.keys(parsed).join(', ')}`);
             }
-            const cleanedContent = cleanJsonString(content);
-            const parsedData = JSON.parse(cleanedContent);
-            if (!parsedData || !Array.isArray(parsedData.questions)) {
-                throw new Error('Parsed JSON does not contain a "questions" array');
+            if (parsed.sections.length === 0) {
+                throw new Error('Response has empty sections array');
             }
-            if (parsedData.questions.length === 0) {
-                throw new Error('Generated questions array is empty');
-            }
-            // Basic structure validation/normalization
-            const validatedQuestions = parsedData.questions.map((q) => {
-                const difficultyVal = ['easy', 'medium', 'hard'].includes(q.difficulty) ? q.difficulty : difficulty;
-                return {
-                    questionText: String(q.questionText || ''),
-                    options: Array.isArray(q.options) ? q.options.map(String) : undefined,
-                    correctAnswer: q.correctAnswer ? String(q.correctAnswer) : undefined,
-                    explanation: q.explanation ? String(q.explanation) : undefined,
-                    difficulty: difficultyVal,
-                    cognitiveLevel: q.cognitiveLevel ? String(q.cognitiveLevel) : 'Understanding',
-                };
-            });
-            return validatedQuestions;
+            const totalQuestions = parsed.sections.reduce((sum, s) => sum + s.questions.length, 0);
+            const totalMarks = parsed.sections.reduce((sum, s) => sum + s.questions.reduce((qSum, q) => qSum + q.marks, 0), 0);
+            console.log(`✅ AI generation succeeded: ${totalQuestions} questions, ${totalMarks} total marks`);
+            return { sections: parsed.sections, totalMarks, totalQuestions };
         }
-        catch (error) {
-            console.warn(`⚠️ AI Service: Attempt ${attempt} failed: ${error.message}`);
-            lastError = error;
+        catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.error(`❌ AI attempt ${attempt} failed: ${lastError.message}`);
+            if (attempt < 3) {
+                await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+                continue;
+            }
         }
     }
-    throw new Error(`Failed to generate valid questions JSON after ${maxAttempts} attempts. Last error: ${lastError?.message}`);
-};
-exports.generateQuestions = generateQuestions;
+    throw lastError ?? new Error('AI generation failed after 3 attempts');
+}

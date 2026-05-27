@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteGroup = exports.getGroups = exports.createGroup = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const Group_1 = require("../models/Group");
 const createGroup = async (req, res, next) => {
     try {
@@ -32,6 +36,13 @@ exports.getGroups = getGroups;
 const deleteGroup = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Group not found',
+            });
+            return;
+        }
         const group = await Group_1.Group.findByIdAndDelete(id);
         if (!group) {
             res.status(404).json({

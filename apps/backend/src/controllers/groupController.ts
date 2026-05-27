@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Group } from '../models/Group';
 
 export const createGroup = async (
@@ -41,6 +42,13 @@ export const deleteGroup = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Group not found',
+      });
+      return;
+    }
     const group = await Group.findByIdAndDelete(id);
     if (!group) {
       res.status(404).json({

@@ -6,7 +6,6 @@ import { useAssignmentStore, Assignment } from "../../store/useAssignmentStore";
 import { 
   BookOpen, 
   Search, 
-  Copy, 
   Calendar, 
   Clock, 
   Layers, 
@@ -36,13 +35,41 @@ export default function LibraryPage() {
     try {
       const res = await axios.get(`${API_URL}/api/assignments?page=${pageNum}&limit=12&status=completed`);
       
-      if (res.data && Array.isArray(res.data)) {
+      if (res.data && res.data.assignments && Array.isArray(res.data.assignments)) {
+        const mapped = res.data.assignments.map((backendAss: any) => ({
+          id: backendAss._id,
+          title: backendAss.title,
+          subject: backendAss.subject,
+          grade: backendAss.className,
+          dueDate: new Date(backendAss.dueDate).toISOString().split('T')[0],
+          assignedDate: new Date(backendAss.createdAt).toLocaleDateString(),
+          schoolName: backendAss.schoolName,
+          timeAllowed: backendAss.timeAllowed,
+          difficulty: {
+            easy: backendAss.difficultyDistribution?.easy ?? 30,
+            medium: backendAss.difficultyDistribution?.medium ?? 50,
+            hard: backendAss.difficultyDistribution?.hard ?? 20,
+          },
+          questions: backendAss.questionTypes
+            ? backendAss.questionTypes.map((qt: any) => ({
+                id: qt._id,
+                type: qt.type,
+                questionText: "",
+                marks: qt.marksPerQuestion * qt.count,
+              }))
+            : [],
+          includeAnswerKey: backendAss.includeAnswerKey,
+          version: backendAss.version || 1,
+          status: backendAss.status,
+          versionHistory: backendAss.versionHistory
+        }));
+
         if (append) {
-          setLibraryItems(prev => [...prev, ...res.data]);
+          setLibraryItems(prev => [...prev, ...mapped]);
         } else {
-          setLibraryItems(res.data);
+          setLibraryItems(mapped);
         }
-        setHasMore(res.data.length === 12);
+        setHasMore(mapped.length === 12);
       }
     } catch (err) {
       console.warn("API offline. Loading mock items filtered from Zustand/local cache.", err);
@@ -127,10 +154,16 @@ export default function LibraryPage() {
     router.push("/assignments/create");
   };
 
-  const getSubjectBadgeColor = (subject: string) => {
-    const colors = ['#FEF3C7', '#DCFCE7', '#DBEAFE', '#F3E8FF', '#FFE4E6'];
+  const getSubjectBadgeClasses = (subject: string) => {
+    const classes = [
+      "bg-amber-50/80 border-amber-200/50 text-amber-700",
+      "bg-emerald-50/80 border-emerald-200/50 text-emerald-700",
+      "bg-blue-50/80 border-blue-200/50 text-blue-700",
+      "bg-purple-50/80 border-purple-200/50 text-purple-700",
+      "bg-rose-50/80 border-rose-200/50 text-rose-700"
+    ];
     const index = (subject?.charCodeAt(0) || 0) % 5;
-    return colors[index];
+    return classes[index];
   };
 
   const tabs = ["All", "MCQ", "Short Answer", "Essay", "Mixed"];
@@ -173,37 +206,37 @@ export default function LibraryPage() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto font-sans">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-brand-dark">Completed Curriculum Library</h2>
-          <p className="text-sm text-[#6B7280]">
-            Review all completed assessments and clone layouts for new tests.
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-1">
+        <div className="space-y-1">
+          <h2 className="text-2xl font-extrabold text-brand-dark font-bricolage tracking-tight">Completed Curriculum Library</h2>
+          <p className="text-sm text-brand-secondary font-medium">
+            Review all completed assessments and clone layouts to quickly spin up new tests.
           </p>
         </div>
 
-        {/* Search Bar */}
+        {/* Search Bar - Elevated with beautiful translucent borders & focus rings */}
         <div className="relative max-w-md w-full">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search Assignment"
+            placeholder="Search Assignments or Subjects..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-brand-orange bg-white shadow-sm"
+            className="w-full pl-10 pr-4 py-2.5 bg-white/80 backdrop-blur-md border border-gray-200/80 rounded-full text-sm font-medium focus:outline-none focus:border-[#F15A22] focus:ring-4 focus:ring-orange-100/40 transition-all duration-300 shadow-sm"
           />
         </div>
       </div>
 
-      {/* Dynamic filterable tabs */}
-      <div className="flex flex-wrap border-b border-gray-200 gap-1">
+      {/* Dynamic filterable tabs - Elevated glass trays */}
+      <div className="flex flex-wrap bg-white/60 border border-gray-150/50 p-1.5 rounded-2xl gap-1 shadow-[0_2px_8px_rgba(0,0,0,0.02)] max-w-max">
         {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${
+            className={`px-5 py-2 text-xs font-bold rounded-xl transition-all duration-300 active:scale-95 ${
               activeTab === tab 
-                ? "border-brand-orange text-brand-orange" 
-                : "border-transparent text-brand-secondary hover:text-brand-dark"
+                ? "bg-[#1A1A1A] text-white shadow-sm" 
+                : "text-brand-secondary hover:bg-white hover:text-brand-dark"
             }`}
           >
             {tab}
@@ -213,108 +246,111 @@ export default function LibraryPage() {
 
       {/* Grid of assessments */}
       {filteredLibraryItems.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-150 p-12 text-center flex flex-col items-center justify-center space-y-4">
-          <div className="p-4 bg-orange-50 rounded-full text-brand-orange">
+        <div className="bg-white/80 backdrop-blur-md rounded-3xl border border-gray-150/60 p-16 text-center flex flex-col items-center justify-center space-y-5 shadow-sm">
+          <div className="p-4 bg-orange-50/80 border border-orange-100 rounded-full text-[#F15A22] shadow-sm animate-pulseSlow">
             <BookOpen className="w-10 h-10 stroke-[1.5]" />
           </div>
-          <div className="max-w-md space-y-1">
-            <h3 className="text-lg font-bold text-brand-dark">Library is Empty</h3>
-            <p className="text-xs text-brand-secondary">
-              No matching completed assessments found. Generate assessments to build your curriculum library.
+          <div className="max-w-md space-y-2">
+            <h3 className="text-lg font-black text-brand-dark font-bricolage">Library is Empty</h3>
+            <p className="text-xs text-brand-secondary font-medium leading-relaxed">
+              No matching completed assessments found. Generate assessments to automatically build your curriculum library.
             </p>
           </div>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {filteredLibraryItems.map((item) => {
               const totalQs = item.questions?.length || 0;
               const totalMarks = item.questions?.reduce((sum, q) => sum + q.marks, 0) || 0;
-              const badgeColor = getSubjectBadgeColor(item.subject);
+              const badgeClass = getSubjectBadgeClasses(item.subject);
 
               return (
                 <div
                   key={item.id}
-                  className="bg-white rounded-xl border border-gray-150 p-5 shadow-sm hover:shadow-md transition-shadow relative flex flex-col justify-between space-y-4 font-sans"
+                  className="bg-white/85 backdrop-blur-md rounded-2xl border border-gray-150/60 p-5 shadow-[0_4px_24px_-6px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_30px_-6px_rgba(241,90,34,0.08)] hover:border-[#F15A22]/20 hover:-translate-y-1 transition-all duration-300 relative flex flex-col justify-between space-y-4 font-sans"
                 >
                   <div className="flex items-start justify-between">
                     <span 
-                      className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide text-brand-dark"
-                      style={{ backgroundColor: badgeColor, borderColor: 'rgba(0,0,0,0.05)' }}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black border uppercase tracking-wider ${badgeClass}`}
                     >
                       {item.subject}
                     </span>
-                    <span className="font-semibold text-brand-dark text-xs">v{item.version}</span>
+                    <span className="font-bold text-brand-dark text-xs bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">v{item.version}</span>
                   </div>
 
-                  <div>
-                    <h4 className="text-sm font-bold text-brand-dark line-clamp-2 leading-tight">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-black text-brand-dark leading-snug line-clamp-2 font-sans tracking-tight">
                       {item.title}
                     </h4>
-                    <p className="text-[11px] text-brand-secondary mt-1">
-                      Grade: {item.grade} • Time allowed: {item.timeAllowed} mins
+                    <p className="text-[11px] text-brand-secondary font-semibold uppercase tracking-wide">
+                      {item.grade} • {item.timeAllowed} mins limit
                     </p>
                   </div>
 
-                  {/* Difficulty Distribution Mini Bar */}
-                  <div className="space-y-1.5">
-                    <p className="text-[9px] uppercase font-bold text-brand-secondary">Difficulty balance</p>
-                    <div className="h-2 rounded-full overflow-hidden flex border border-gray-150 shadow-inner w-full bg-gray-100">
+                  {/* Difficulty Distribution Mini Bar - Styled with subtle border gradients */}
+                  <div className="space-y-1.5 bg-gray-50/50 border border-gray-100/50 p-2.5 rounded-xl shadow-inner">
+                    <p className="text-[9px] uppercase font-extrabold text-brand-secondary tracking-wide">Difficulty balance</p>
+                    <div className="h-2 rounded-full overflow-hidden flex border border-gray-200/40 w-full bg-gray-200/50 shadow-inner">
                       <div 
-                        className="bg-green-500 h-full" 
+                        className="bg-emerald-500 h-full transition-all duration-500" 
                         style={{ width: `${item.difficulty?.easy || 40}%` }}
                         title={`Easy: ${item.difficulty?.easy || 40}%`}
                       />
                       <div 
-                        className="bg-amber-500 h-full" 
+                        className="bg-amber-500 h-full transition-all duration-500" 
                         style={{ width: `${item.difficulty?.medium || 40}%` }}
                         title={`Medium: ${item.difficulty?.medium || 40}%`}
                       />
                       <div 
-                        className="bg-red-500 h-full" 
+                        className="bg-red-500 h-full transition-all duration-500" 
                         style={{ width: `${item.difficulty?.hard || 20}%` }}
                         title={`Hard: ${item.difficulty?.hard || 20}%`}
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-[10px] font-semibold text-brand-dark bg-gray-50 p-2.5 rounded-lg border border-gray-100">
-                    <div className="flex items-center space-x-1">
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-extrabold text-brand-dark bg-gray-50 border border-gray-100/80 p-2.5 rounded-xl">
+                    <div className="flex items-center space-x-1.5 justify-center">
                       <Layers className="w-3.5 h-3.5 text-gray-400" />
-                      <span>{totalQs} questions</span>
+                      <span>{totalQs} Questions</span>
                     </div>
-                    <div className="flex items-center space-x-1">
+                    <div className="flex items-center space-x-1.5 justify-center">
                       <Tag className="w-3.5 h-3.5 text-gray-400" />
-                      <span>{totalMarks} marks total</span>
+                      <span>{totalMarks} Marks Total</span>
                     </div>
                   </div>
 
-                  <div className="border-t border-gray-100 pt-3 flex items-center justify-between text-[10px] text-brand-secondary">
-                    <span className="flex items-center space-x-1">
+                  <div className="border-t border-gray-100 pt-3 flex items-center justify-between text-[10px] text-brand-secondary font-bold">
+                    <span className="flex items-center space-x-1 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md">
                       <Calendar className="w-3.5 h-3.5 text-gray-400" />
                       <span>Created: {item.assignedDate}</span>
                     </span>
+                    <span className="flex items-center space-x-1 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md">
+                      <Clock className="w-3.5 h-3.5 text-gray-400" />
+                      <span>Due: {item.dueDate}</span>
+                    </span>
                   </div>
 
-                  {/* Complete Action Row */}
-                  <div className="flex gap-2 mt-3 pt-3 border-t border-[#E5E5E5] text-xs">
+                  {/* Complete Action Row - Redesigned with outlines & active scales */}
+                  <div className="flex gap-2 mt-2 pt-3 border-t border-gray-100 text-xs">
                     <button 
                       onClick={() => router.push(`/assignments/${item.id}`)}
-                      className="flex-1 py-1.5 border border-gray-250 hover:border-brand-orange text-brand-dark hover:text-brand-orange rounded-lg font-bold transition-all text-center bg-white"
+                      className="flex-1 py-1.5 bg-white border border-gray-200 hover:border-[#F15A22] hover:text-[#F15A22] hover:bg-orange-50/30 text-brand-dark rounded-xl font-bold transition-all duration-200 text-center active:scale-95 shadow-sm"
                     >
                       👁 View
                     </button>
                     <button 
-                      onClick={() => window.open(`${API_URL}/api/results/${item.id}/pdf`, '_blank')}
-                      className="flex-1 py-1.5 border border-gray-250 hover:border-brand-orange text-brand-dark hover:text-brand-orange rounded-lg font-bold transition-all text-center bg-white"
+                      onClick={() => window.open(`${API_URL}/api/assignments/${item.id}/pdf`, '_blank')}
+                      className="flex-1 py-1.5 bg-white border border-gray-200 hover:border-[#F15A22] hover:text-[#F15A22] hover:bg-orange-50/30 text-brand-dark rounded-xl font-bold transition-all duration-200 text-center active:scale-95 shadow-sm"
                     >
                       ⬇ PDF
                     </button>
                     <button 
                       onClick={() => handleDuplicate(item.id)}
-                      className="flex-1 py-1.5 border border-gray-250 hover:border-brand-orange text-brand-dark hover:text-brand-orange rounded-lg font-bold transition-all text-center bg-white"
+                      className="flex-1 py-1.5 bg-white border border-gray-200 hover:border-[#F15A22] hover:text-[#F15A22] hover:bg-orange-50/30 text-brand-dark rounded-xl font-bold transition-all duration-200 text-center active:scale-95 shadow-sm"
                     >
-                      🔄 Duplicate
+                      🔄 Clone
                     </button>
                   </div>
                 </div>
@@ -327,7 +363,7 @@ export default function LibraryPage() {
             <div className="text-center pt-4">
               <button
                 onClick={handleLoadMore}
-                className="px-6 py-2 border border-gray-250 hover:bg-gray-50 text-brand-dark font-semibold rounded-full text-xs transition-colors shadow-sm"
+                className="px-6 py-2.5 bg-white border border-gray-250 hover:border-[#F15A22] hover:text-[#F15A22] text-brand-dark font-extrabold rounded-full text-xs transition-colors shadow-sm hover:shadow-md active:scale-95 transition-all"
               >
                 Load More Assessments
               </button>

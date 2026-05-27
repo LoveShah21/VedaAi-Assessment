@@ -3,15 +3,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.downloadAssignmentPDF = exports.getAssignmentStats = exports.duplicateAssignment = exports.deleteAssignment = exports.regenerateAssignment = exports.getAssignmentResult = exports.getAssignmentById = exports.getAssignments = exports.createAssignment = void 0;
+exports.getResultByVersion = exports.deleteAllAssignments = exports.downloadAssignmentPDF = exports.getAssignmentStats = exports.duplicateAssignment = exports.deleteAssignment = exports.regenerateAssignment = exports.getAssignmentResult = exports.getAssignmentStatus = exports.getAssignmentById = exports.getAssignments = exports.createAssignment = void 0;
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const mongoose_1 = __importDefault(require("mongoose"));
 const Assignment_1 = require("../models/Assignment");
 const Result_1 = require("../models/Result");
 const Activity_1 = require("../models/Activity");
 const generationQueue_1 = require("../queues/generationQueue");
 const cacheService_1 = require("../services/cacheService");
 const fileParser_1 = require("../utils/fileParser");
+const r2Service_1 = require("../services/r2Service");
 const socketManager_1 = require("../socket/socketManager");
 const getErrorMessage = (error) => {
     if (error instanceof Error)
@@ -20,12 +22,14 @@ const getErrorMessage = (error) => {
 };
 const createAssignment = async (req, res, next) => {
     try {
-        let sourceMaterial = req.body.sourceMaterial || '';
+        let sourceMaterial = '';
+        let uploadedFileUrl = undefined;
         if (req.file) {
             console.log(`📁 Processing uploaded file: ${req.file.originalname}`);
             try {
                 const extractedText = await (0, fileParser_1.parseFileContent)(req.file);
                 sourceMaterial = extractedText.trim();
+                uploadedFileUrl = await (0, r2Service_1.uploadToR2)(req.file.buffer, req.file.originalname, req.file.mimetype);
             }
             catch (parseErr) {
                 res.status(400).json({
@@ -35,90 +39,58 @@ const createAssignment = async (req, res, next) => {
                 return;
             }
         }
-        let subject = req.body.subject;
-        let gradeLevel = req.body.gradeLevel || req.body.grade;
-        let topic = req.body.topic;
-        let difficulty = req.body.difficulty;
-        let numberOfQuestions = req.body.numberOfQuestions;
-        let questionType = req.body.questionType;
-        let schoolName = req.body.schoolName;
-        let timeAllowed = req.body.timeAllowed;
-        let includeAnswerKey = req.body.includeAnswerKey;
-        let questionRows = req.body.questionRows;
-        // Support nested formData structure if sent by the frontend
+        // Default parameters matching spec
+        let subject = req.body.subject || '';
+        let className = req.body.className || req.body.grade || '';
+        let schoolName = req.body.schoolName || '';
+        let timeAllowed = req.body.timeAllowed ? Number(req.body.timeAllowed) : 60;
+        let dueDate = req.body.dueDate ? new Date(req.body.dueDate) : new Date(Date.now() + 7 * 24 * 3600 * 1000);
+        let questionTypes = req.body.questionTypes || [];
+        let difficultyDistribution = req.body.difficultyDistribution || { easy: 30, medium: 50, hard: 20 };
+        let additionalInstructions = req.body.additionalInstructions || req.body.voicePrompt || '';
+        let includeAnswerKey = req.body.includeAnswerKey !== undefined ? !!req.body.includeAnswerKey : false;
+        // Support nested formData structure sent by the frontend
         if (req.body.formData) {
             const fd = req.body.formData;
             subject = fd.subject || subject;
-            gradeLevel = fd.grade || fd.gradeLevel || gradeLevel;
+            className = fd.grade || fd.className || className;
             schoolName = fd.schoolName || schoolName;
             timeAllowed = fd.timeAllowed !== undefined ? Number(fd.timeAllowed) : timeAllowed;
             includeAnswerKey = fd.includeAnswerKey !== undefined ? !!fd.includeAnswerKey : includeAnswerKey;
-            questionRows = fd.questionRows || questionRows;
-            // Calculate total questions if questionRows is provided
+            additionalInstructions = fd.voicePrompt || fd.additionalInstructions || additionalInstructions;
+            if (fd.dueDate) {
+                dueDate = new Date(fd.dueDate);
+            }
             if (Array.isArray(fd.questionRows)) {
-                numberOfQuestions = fd.questionRows.reduce((sum, r) => sum + (Number(r.count) || 0), 0);
-                // Map types: if there's only 1 type, map to it, otherwise mixed
-                const uniqueTypes = Array.from(new Set(fd.questionRows.map((r) => String(r.type).toLowerCase())));
-                if (uniqueTypes.length === 1) {
-                    const typeStr = uniqueTypes[0];
-                    if (typeStr.includes('mcq'))
-                        questionType = 'mcq';
-                    else if (typeStr.includes('short'))
-                        questionType = 'short';
-                    else if (typeStr.includes('long'))
-                        questionType = 'long';
-                    else
-                        questionType = 'mixed';
-                }
-                else {
-                    questionType = 'mixed';
-                }
+                questionTypes = fd.questionRows.map((r) => ({
+                    type: String(r.type || ''),
+                    count: Number(r.count) || 1,
+                    marksPerQuestion: Number(r.marksPerQuestion) || 1,
+                }));
             }
-            // Map difficulty object or weights to a string 'easy' | 'medium' | 'hard'
             if (fd.difficulty) {
-                if (typeof fd.difficulty === 'string') {
-                    difficulty = fd.difficulty;
-                }
-                else {
-                    const { easy, moderate, hard } = fd.difficulty;
-                    const e = Number(easy) || 0;
-                    const m = Number(moderate) || 0;
-                    const h = Number(hard) || 0;
-                    if (e >= m && e >= h)
-                        difficulty = 'easy';
-                    else if (h >= e && h >= m)
-                        difficulty = 'hard';
-                    else
-                        difficulty = 'medium';
-                }
-            }
-            // Map voicePrompt to topic or use file name
-            if (fd.voicePrompt && fd.voicePrompt.trim().length > 0) {
-                topic = fd.voicePrompt.trim().slice(0, 50);
-            }
-            else if (req.file) {
-                topic = req.file.originalname.split('.')[0];
-            }
-            else {
-                topic = 'Curriculum';
+                const { easy, moderate, medium, hard } = fd.difficulty;
+                difficultyDistribution = {
+                    easy: Number(easy) || 0,
+                    medium: Number(medium || moderate) || 0,
+                    hard: Number(hard) || 0,
+                };
             }
         }
-        // Generate smart title
-        const smartTitle = `${subject} Grade ${gradeLevel} Assessment - ${topic}`;
+        const smartTitle = `${subject} Class ${className} Assessment - ${new Date(dueDate).toLocaleDateString()}`;
         const assignment = new Assignment_1.Assignment({
             title: smartTitle,
             subject,
-            gradeLevel,
-            topic,
-            difficulty,
-            numberOfQuestions,
-            questionType,
-            sourceMaterial,
+            className,
             schoolName,
             timeAllowed,
+            dueDate,
+            questionTypes,
+            difficultyDistribution,
+            additionalInstructions,
+            uploadedFileUrl,
+            extractedText: sourceMaterial,
             includeAnswerKey,
-            questionRows,
-            grade: gradeLevel,
             status: 'pending',
         });
         await assignment.save();
@@ -127,6 +99,7 @@ const createAssignment = async (req, res, next) => {
         const jobPosition = await (0, generationQueue_1.getJobPositionInQueue)(job.id || jobId);
         (0, socketManager_1.emitToAssignment)(jobId, 'job:queued', {
             assignmentId: jobId,
+            jobId: job.id,
             position: jobPosition,
         });
         await cacheService_1.cacheService.delPattern('assignments:list:*');
@@ -137,9 +110,8 @@ const createAssignment = async (req, res, next) => {
             assignmentTitle: assignment.title,
             metadata: {
                 subject: assignment.subject,
-                gradeLevel: assignment.gradeLevel,
-                topic: assignment.topic,
-                numberOfQuestions: assignment.numberOfQuestions,
+                className: assignment.className,
+                dueDate: assignment.dueDate,
             },
         });
         await activity.save();
@@ -160,11 +132,18 @@ const getAssignments = async (req, res, next) => {
         const status = req.query.status;
         const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
         const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
+        const search = req.query.search;
         const query = { deleted: { $ne: true } };
         if (status) {
             query.status = status;
         }
-        const cacheKey = `assignments:list:${status || 'all'}:${page || 'all'}:${limit || 'all'}`;
+        if (search) {
+            query.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { subject: { $regex: search, $options: 'i' } }
+            ];
+        }
+        const cacheKey = `assignments:list:${status || 'all'}:${page || 'all'}:${limit || 'all'}:${search || 'all'}`;
         const cachedData = await cacheService_1.cacheService.get(cacheKey);
         if (cachedData) {
             const parsed = JSON.parse(cachedData);
@@ -204,6 +183,68 @@ exports.getAssignments = getAssignments;
 const getAssignmentById = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
+        const assignment = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
+        if (!assignment) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
+        // Dynamic Version History Sync based on Result documents
+        const results = await Result_1.Result.find({ assignmentId: id }).select('version totalQuestions generatedAt').sort({ version: 1 });
+        const versionHistory = results.map(r => ({
+            version: r.version,
+            timestamp: r.generatedAt ? new Date(r.generatedAt).toLocaleString() : new Date().toLocaleString(),
+            questionsCount: r.totalQuestions,
+        }));
+        const defaultHistory = [{
+                version: 1,
+                timestamp: new Date(assignment.createdAt).toLocaleString(),
+                questionsCount: 0,
+            }];
+        const assignmentObj = assignment.toObject();
+        assignmentObj.versionHistory = versionHistory.length > 0 ? versionHistory : defaultHistory;
+        assignmentObj.version = results.length > 0 ? results[results.length - 1].version : assignment.version;
+        res.status(200).json({
+            success: true,
+            assignment: assignmentObj,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.getAssignmentById = getAssignmentById;
+const getAssignmentStatus = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
+        const redisKey = `job:status:${id}`;
+        const cached = await cacheService_1.cacheService.get(redisKey);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            res.status(200).json({
+                success: true,
+                status: parsed.status,
+                progress: parsed.progress ?? 0,
+                jobId: id,
+            });
+            return;
+        }
         const assignment = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
         if (!assignment) {
             res.status(404).json({
@@ -214,25 +255,40 @@ const getAssignmentById = async (req, res, next) => {
         }
         res.status(200).json({
             success: true,
-            assignment,
+            status: assignment.status,
+            progress: 0,
+            jobId: id,
         });
     }
     catch (error) {
         next(error);
     }
 };
-exports.getAssignmentById = getAssignmentById;
+exports.getAssignmentStatus = getAssignmentStatus;
 const getAssignmentResult = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
+        const versionParam = req.query.version ? parseInt(req.query.version, 10) : undefined;
         const cacheKey = `result:${id}`;
         const cachedData = await cacheService_1.cacheService.get(cacheKey);
         if (cachedData) {
-            res.status(200).json({
+            const parsed = JSON.parse(cachedData);
+            const responsePayload = {
                 success: true,
                 source: 'cache',
-                ...JSON.parse(cachedData),
-            });
+                ...parsed,
+            };
+            if (versionParam !== undefined && versionParam > 1) {
+                responsePayload.version = versionParam;
+            }
+            res.status(200).json(responsePayload);
             return;
         }
         const assignment = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
@@ -248,8 +304,11 @@ const getAssignmentResult = async (req, res, next) => {
             assignment,
             result,
         };
+        if (versionParam !== undefined && versionParam > 1) {
+            payload.version = versionParam;
+        }
         if (result) {
-            await cacheService_1.cacheService.set(cacheKey, JSON.stringify(payload), 3600);
+            await cacheService_1.cacheService.set(cacheKey, JSON.stringify({ assignment, result }), 3600);
         }
         res.status(200).json({
             success: true,
@@ -265,6 +324,13 @@ exports.getAssignmentResult = getAssignmentResult;
 const regenerateAssignment = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
         const assignment = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
         if (!assignment) {
             res.status(404).json({
@@ -274,7 +340,6 @@ const regenerateAssignment = async (req, res, next) => {
             return;
         }
         assignment.status = 'pending';
-        assignment.error = undefined;
         await assignment.save();
         const job = await (0, generationQueue_1.addGenerationJob)(id);
         const jobPosition = await (0, generationQueue_1.getJobPositionInQueue)(job.id || id);
@@ -287,7 +352,7 @@ const regenerateAssignment = async (req, res, next) => {
             assignmentTitle: assignment.title,
             metadata: {
                 subject: assignment.subject,
-                gradeLevel: assignment.gradeLevel,
+                className: assignment.className,
             },
         });
         await activity.save();
@@ -310,6 +375,13 @@ exports.regenerateAssignment = regenerateAssignment;
 const deleteAssignment = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
         const assignment = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
         if (!assignment) {
             res.status(404).json({
@@ -330,7 +402,7 @@ const deleteAssignment = async (req, res, next) => {
             assignmentTitle: assignment.title,
             metadata: {
                 subject: assignment.subject,
-                gradeLevel: assignment.gradeLevel,
+                className: assignment.className,
             },
         });
         await activity.save();
@@ -347,6 +419,13 @@ exports.deleteAssignment = deleteAssignment;
 const duplicateAssignment = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
         const original = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
         if (!original) {
             res.status(404).json({
@@ -359,17 +438,16 @@ const duplicateAssignment = async (req, res, next) => {
         const duplicated = new Assignment_1.Assignment({
             title: smartTitle,
             subject: original.subject,
-            gradeLevel: original.gradeLevel,
-            topic: original.topic,
-            difficulty: original.difficulty,
-            numberOfQuestions: original.numberOfQuestions,
-            questionType: original.questionType,
-            sourceMaterial: original.sourceMaterial,
+            className: original.className,
             schoolName: original.schoolName,
             timeAllowed: original.timeAllowed,
+            dueDate: original.dueDate,
+            questionTypes: original.questionTypes,
+            difficultyDistribution: original.difficultyDistribution,
+            additionalInstructions: original.additionalInstructions,
+            uploadedFileUrl: original.uploadedFileUrl,
+            extractedText: original.extractedText,
             includeAnswerKey: original.includeAnswerKey,
-            questionRows: original.questionRows,
-            grade: original.grade,
             status: 'pending',
         });
         await duplicated.save();
@@ -390,19 +468,22 @@ const duplicateAssignment = async (req, res, next) => {
             metadata: {
                 duplicatedFrom: original._id,
                 subject: duplicated.subject,
-                gradeLevel: duplicated.gradeLevel,
-                topic: duplicated.topic,
+                className: duplicated.className,
             },
         });
         await activity.save();
         const sourceConfig = {
             subject: original.subject,
-            grade: original.grade || original.gradeLevel,
+            grade: original.className,
             schoolName: original.schoolName || 'Veda International School',
             timeAllowed: original.timeAllowed || 60,
-            difficulty: original.difficulty,
+            difficulty: original.difficultyDistribution,
             includeAnswerKey: original.includeAnswerKey !== undefined ? original.includeAnswerKey : true,
-            questionRows: original.questionRows || [],
+            questionRows: original.questionTypes.map((qt) => ({
+                type: qt.type,
+                count: qt.count,
+                marksPerQuestion: qt.marksPerQuestion,
+            })),
         };
         res.status(201).json({
             success: true,
@@ -470,6 +551,14 @@ exports.getAssignmentStats = getAssignmentStats;
 const downloadAssignmentPDF = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({
+                success: false,
+                message: 'Assignment not found',
+            });
+            return;
+        }
+        const answerKey = req.query.answerKey;
         const assignment = await Assignment_1.Assignment.findOne({ _id: id, deleted: { $ne: true } });
         if (!assignment) {
             res.status(404).json({
@@ -493,10 +582,19 @@ const downloadAssignmentPDF = async (req, res, next) => {
             assignmentTitle: assignment.title,
             metadata: {
                 subject: assignment.subject,
-                gradeLevel: assignment.gradeLevel,
+                className: assignment.className,
             },
         });
         await activity.save();
+        // A6: Add answer-key toggle header (MVP — PDF served as-is)
+        if (answerKey === 'false') {
+            res.setHeader('X-Answer-Key', 'excluded');
+        }
+        // A7: Version-aware PDF — include version in response header
+        const versionParam = req.query.version;
+        if (versionParam) {
+            res.setHeader('X-Paper-Version', String(versionParam));
+        }
         // Resolve the path to the uploads directory
         const uploadsDir = path_1.default.resolve(process.env.UPLOAD_DIR || 'uploads');
         const filename = path_1.default.basename(result.pdfUrl);
@@ -513,3 +611,48 @@ const downloadAssignmentPDF = async (req, res, next) => {
     }
 };
 exports.downloadAssignmentPDF = downloadAssignmentPDF;
+const deleteAllAssignments = async (req, res, next) => {
+    try {
+        const result = await Assignment_1.Assignment.updateMany({}, { deleted: true });
+        await cacheService_1.cacheService.delPattern('assignments:list:*');
+        // Log activity
+        const activity = new Activity_1.Activity({
+            type: 'assignment_deleted',
+            metadata: { scope: 'all', count: result.modifiedCount }
+        });
+        await activity.save();
+        res.status(200).json({ deletedCount: result.modifiedCount });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.deleteAllAssignments = deleteAllAssignments;
+const getResultByVersion = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(404).json({ error: 'Result not found' });
+            return;
+        }
+        const version = req.query.version ? parseInt(req.query.version, 10) : undefined;
+        const query = { assignmentId: id };
+        if (version !== undefined && !isNaN(version))
+            query.version = version;
+        let result = version
+            ? await Result_1.Result.findOne(query)
+            : await Result_1.Result.findOne({ assignmentId: id }).sort({ version: -1 });
+        if (!result && version !== undefined) {
+            result = await Result_1.Result.findOne({ assignmentId: id }).sort({ version: -1 });
+        }
+        if (!result) {
+            res.status(404).json({ error: 'Result not found' });
+            return;
+        }
+        res.status(200).json(result);
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.getResultByVersion = getResultByVersion;

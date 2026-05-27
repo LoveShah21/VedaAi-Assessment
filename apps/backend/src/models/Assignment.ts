@@ -13,6 +13,12 @@ export interface IDifficultyDistribution {
   hard: number;
 }
 
+export interface IVersionHistory {
+  version: number;
+  timestamp: string;
+  questionsCount: number;
+}
+
 export interface IAssignment extends Document {
   title: string;
   subject: string;
@@ -31,6 +37,8 @@ export interface IAssignment extends Document {
   jobId?: string;
   resultId?: mongoose.Types.ObjectId;
   deleted: boolean;
+  version: number;
+  versionHistory: IVersionHistory[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,6 +77,14 @@ const AssignmentSchema = new Schema<IAssignment>(
     jobId: { type: String },
     resultId: { type: Schema.Types.ObjectId, ref: 'Result' },
     deleted: { type: Boolean, default: false },
+    version: { type: Number, default: 1 },
+    versionHistory: [
+      {
+        version: { type: Number, required: true },
+        timestamp: { type: String, required: true },
+        questionsCount: { type: Number, required: true },
+      }
+    ],
   },
   { timestamps: true }
 );

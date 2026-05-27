@@ -5,12 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
 import { useAssignmentStore, Assignment } from "../../../store/useAssignmentStore";
 import { ErrorBoundary } from "../../../components/common/ErrorBoundary";
-import { 
-  Download, 
-  Copy, 
-  RefreshCw, 
-  ChevronDown, 
-  ChevronUp, 
+import {
+  Download,
+  Copy,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
   ArrowLeft,
   HelpCircle,
   Share2,
@@ -65,88 +65,6 @@ const QuestionPaperSkeleton = () => (
   </div>
 );
 
-const QuestionItem = ({ question, showAnswerKeys }: { question: IQuestion; showAnswerKeys: boolean }) => {
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-
-  const handleCopy = () => {
-    const copyText = `Q${question.number}. [${question.difficulty}] ${question.text} [${question.marks} Mark${question.marks > 1 ? 's' : ''}]`;
-    navigator.clipboard.writeText(copyText).then(() => {
-      setCopiedId(question.number);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
-  };
-
-  let difficultyColor = "bg-green-50 text-green-700 border-green-200";
-  if (question.difficulty === "Moderate" || question.difficulty === "medium" || question.difficulty === "Medium") {
-    difficultyColor = "bg-amber-50 text-amber-700 border-amber-200";
-  } else if (question.difficulty === "Hard") {
-    difficultyColor = "bg-red-50 text-red-700 border-red-200";
-  }
-
-  return (
-    <div className="group relative p-4 rounded-xl border border-gray-150 hover:border-brand-orange hover:bg-orange-50/5 transition-all space-y-3">
-      {/* Hover Copy Button with inline copied tooltip */}
-      <div className="absolute top-3.5 right-3.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={handleCopy}
-          className={`relative flex items-center space-x-1 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
-            copiedId === question.number
-              ? "bg-green-50 border-green-200 text-green-700"
-              : "bg-white border-gray-200 text-gray-500 hover:text-brand-orange hover:border-brand-orange"
-          }`}
-          title="Copy Question"
-        >
-          <Copy className="w-3 h-3" />
-          <span>{copiedId === question.number ? "Copied!" : "Copy"}</span>
-          
-          {copiedId === question.number && (
-            <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded z-50 shadow-md">
-              Copied!
-            </span>
-          )}
-        </button>
-      </div>
-
-      <div className="flex items-start justify-between pr-8">
-        <div className="flex items-center space-x-2">
-          <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
-            Q{question.number}
-          </span>
-          <span className={`px-2 py-0.5 text-[10px] font-semibold border rounded-full ${difficultyColor}`}>
-            {question.difficulty}
-          </span>
-        </div>
-        <span className="text-xs font-bold text-brand-orange">
-          [{question.marks} Mark{question.marks > 1 ? 's' : ''}]
-        </span>
-      </div>
-
-      <p className="text-sm font-semibold text-brand-dark leading-relaxed">
-        {question.text}
-      </p>
-
-      {/* Answer Key inside transition container */}
-      <div
-        style={{
-          maxHeight: showAnswerKeys && question.answer ? '400px' : '0',
-          opacity: showAnswerKeys && question.answer ? 1 : 0,
-          overflow: 'hidden',
-          transition: 'max-height 0.4s ease, opacity 0.3s ease',
-        }}
-      >
-        <div className="mt-3 p-3 bg-green-50/30 border border-green-150 rounded-lg space-y-1">
-          <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider">
-            Correct Answer / Explanation
-          </p>
-          <p className="text-xs font-semibold text-green-900 leading-relaxed">
-            {question.answer}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 export default function AssignmentDetailsPage() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
@@ -157,25 +75,83 @@ export default function AssignmentDetailsPage() {
   // Retrieve current assignment
   const assignment = assignments.find((a) => a.id === id);
 
-  const [selectedVersion, setSelectedVersion] = useState<number>(1);
+  const currentJob = useAssignmentStore((state) => state.currentJob);
+  const setCurrentJob = useAssignmentStore((state) => state.setCurrentJob);
+
+  const isRegenerating = !!(currentJob && currentJob.id === id && currentJob.status === "processing");
+
+  const [selectedVersion, setSelectedVersion] = useState<number>(assignment?.version || 1);
   const [showAnswerKeys, setShowAnswerKeys] = useState<boolean>(false);
   const [isVersionDropdownOpen, setIsVersionDropdownOpen] = useState(false);
-  const [isRegenerating, setIsRegenerating] = useState(false);
-  const [regenerateLogs, setRegenerateLogs] = useState<string[]>([]);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState<boolean>(false);
   const [result, setResult] = useState<IResult | null>(null);
   const [versionLoading, setVersionLoading] = useState<boolean>(true);
 
+  // Automatically select the latest version when a new version is created/updated
+  useEffect(() => {
+    if (assignment && assignment.version) {
+      setSelectedVersion((prev) => {
+        if (assignment.version > prev) {
+          return assignment.version;
+        }
+        return prev;
+      });
+    }
+  }, [assignment?.version]);
+
+  // Fetch assignment if missing from store (e.g. direct page refresh)
+  useEffect(() => {
+    if (assignment) return;
+    const fetchAssignmentData = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/assignments/${id}`);
+        if (res.data && res.data.assignment) {
+          const backendAss = res.data.assignment;
+          const mappedAss: Assignment = {
+            id: backendAss._id,
+            title: backendAss.title,
+            subject: backendAss.subject,
+            grade: backendAss.className,
+            dueDate: new Date(backendAss.dueDate).toISOString().split('T')[0],
+            assignedDate: new Date(backendAss.createdAt).toLocaleDateString(),
+            schoolName: backendAss.schoolName,
+            timeAllowed: backendAss.timeAllowed,
+            difficulty: {
+              easy: backendAss.difficultyDistribution?.easy ?? 30,
+              medium: backendAss.difficultyDistribution?.medium ?? 50,
+              hard: backendAss.difficultyDistribution?.hard ?? 20,
+            },
+            questions: [],
+            includeAnswerKey: backendAss.includeAnswerKey,
+            version: backendAss.version || 1,
+            status: backendAss.status,
+            versionHistory: backendAss.versionHistory && backendAss.versionHistory.length > 0
+              ? backendAss.versionHistory
+              : [{ version: 1, timestamp: new Date(backendAss.createdAt).toLocaleString(), questionsCount: 0 }]
+          };
+          addAssignment(mappedAss);
+        }
+      } catch (err) {
+        console.error("Failed to load assignment on direct page load:", err);
+      }
+    };
+    fetchAssignmentData();
+  }, [id, assignment, addAssignment]);
+
   // Fetch sections-based result
   useEffect(() => {
     if (!assignment) return;
-    
+
     const fetchResult = async () => {
       setVersionLoading(true);
       try {
         const res = await axios.get(`${API_URL}/api/assignments/${id}/results?version=${selectedVersion}`);
         if (res.data) {
-          setResult(res.data);
+          if (res.data.result) {
+            setResult(res.data.result);
+          } else {
+            setResult(res.data);
+          }
         }
       } catch (err) {
         console.warn("Failed to fetch result from API, creating mock result.", err);
@@ -218,7 +194,7 @@ export default function AssignmentDetailsPage() {
       if (!hasModifier) return;
 
       const key = e.key.toLowerCase();
-      if (key === "g" || key === "r") {
+      if (key === "e") {
         e.preventDefault();
         handleRegenerate();
       } else if (key === "d") {
@@ -268,7 +244,7 @@ export default function AssignmentDetailsPage() {
   const handleCopyAllQuestions = () => {
     if (!result) return;
     let formattedText = `${assignment.title}\nSubject: ${assignment.subject} | Grade: ${assignment.grade}\n\n`;
-    
+
     result.sections.forEach((sec: ISection) => {
       formattedText += `--- ${sec.title}: ${sec.questionType} ---\n${sec.instruction}\n\n`;
       sec.questions.forEach((q: IQuestion) => {
@@ -290,7 +266,7 @@ export default function AssignmentDetailsPage() {
   // Action: Share Preview
   const handleSharePreviewLink = () => {
     if (typeof window !== "undefined") {
-      const shareUrl = `${window.location.origin}/assignments/${assignment.id}/preview`;
+      const shareUrl = `${window.location.origin}/assignments/${assignment.id}/preview?version=${selectedVersion}`;
       navigator.clipboard.writeText(shareUrl).then(() => {
         addToast("Preview share link copied to clipboard!", "success");
       }).catch(() => {
@@ -301,76 +277,78 @@ export default function AssignmentDetailsPage() {
 
   // Action: Regenerate
   const handleRegenerate = async () => {
-    setIsRegenerating(true);
-    setRegenerateLogs(["Initiating paper regeneration...", "Connecting to OpenCode Zen API..."]);
-    
-    setTimeout(() => {
-      setRegenerateLogs(prev => [...prev, "Drafting alternative curriculum questions...", "Aligning question difficulties..."]);
-    }, 600);
+    if (isRegenerating) return;
 
-    setTimeout(async () => {
-      const nextVer = (assignment.versionHistory?.length || 1) + 1;
-      const updatedHistory = [
-        ...(assignment.versionHistory || [{ version: 1, timestamp: assignment.assignedDate, questionsCount: assignment.questions.length }]),
-        {
-          version: nextVer,
-          timestamp: new Date().toLocaleString(),
-          questionsCount: assignment.questions.length
-        }
-      ];
+    setCurrentJob({
+      id: id,
+      status: "processing",
+      progress: 5,
+      logs: ["Initiating paper regeneration...", "Connecting to OpenCode Zen API..."]
+    });
 
-      const updatedAssignment: Assignment = {
-        ...assignment,
-        version: nextVer,
-        versionHistory: updatedHistory
-      };
-
-      addAssignment(updatedAssignment);
-      setSelectedVersion(nextVer);
-      setIsRegenerating(false);
-      addToast(`Version ${nextVer} regenerated successfully!`, "success");
-    }, 1800);
-  };
-
-  return (
+    try {
+      const res = await axios.post(`${API_URL}/api/assignments/${id}/regenerate`);
+      if (res.data && res.data.success) {
+        addToast("Assessment regeneration requested successfully.", "info");
+      } else {
+        throw new Error(res.data?.message || "Regeneration request failed");
+      }
+    } catch (err) {
+      console.error("Failed to regenerate assignment:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      addToast(`Regeneration failed: ${errMsg}`, "error");
+      setCurrentJob(null);
+    }
+  }; return (
     <div className="space-y-6 max-w-5xl mx-auto font-sans relative pb-20">
-      {/* Conversational Introductory Banner */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 shadow-sm text-sm text-brand-dark leading-relaxed font-sans flex items-center justify-between">
-        <p>Certainly, John Doe! Here are customized Question Paper for your {assignment.grade} {assignment.subject} classes on the {assignment.title}:</p>
+      {/* Conversational Introductory Banner - Dark rounded card */}
+      <div className="bg-[#1A1A1A] text-white rounded-2xl p-6 shadow-md text-sm leading-relaxed font-sans flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <p className="flex-1">Certainly, John Doe! Here is the customized Question Paper for your {assignment.grade} {assignment.subject} classes on the topic of &ldquo;{assignment.title}&rdquo;:</p>
+        <button
+          onClick={handleDownloadPDF}
+          className="flex items-center justify-center space-x-2 px-5 py-2.5 bg-white text-[#1A1A1A] hover:bg-gray-100 font-bold rounded-full text-xs transition-all shadow-sm flex-shrink-0"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Download as PDF</span>
+        </button>
       </div>
 
-      {/* Dark Action Banner (Print/Version control) */}
-      <div className="bg-brand-dark rounded-2xl p-4 md:p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg border border-gray-800">
-        <div className="flex items-center space-x-3.5">
-          <button 
+      {/* Action Toolbar */}
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center space-x-3">
+          <button
             onClick={() => router.push("/assignments")}
-            className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors border border-gray-700"
+            className="p-2 hover:bg-gray-150 text-[#1A1A1A] rounded-lg transition-colors border border-gray-200"
+            title="Back to Assignments"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h3 className="font-bold text-base md:text-lg">{assignment.title}</h3>
-            <p className="text-xs text-gray-400">
+            <h3 className="font-bold text-sm text-[#1A1A1A]">{assignment.title}</h3>
+            <p className="text-[10px] text-brand-secondary font-medium">
               {assignment.grade} • {assignment.subject}
             </p>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-end">
           {/* Version Selector Dropdown */}
           <div className="relative">
             <button
               onClick={() => setIsVersionDropdownOpen(!isVersionDropdownOpen)}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-750 text-white rounded-lg text-xs font-semibold border border-gray-700 transition-colors"
+              className="flex items-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-[#1A1A1A] rounded-lg text-xs font-semibold border border-gray-200 transition-colors"
             >
               <span>Version {selectedVersion}</span>
-              <ChevronDown className="w-3.5 h-3.5" />
+              <ChevronDown className="w-3.5 h-3.5 text-gray-550" />
             </button>
 
             {isVersionDropdownOpen && (
               <div className="absolute right-0 mt-1.5 w-44 bg-white border border-gray-200 rounded-lg shadow-xl text-xs text-brand-dark py-1 z-35 font-medium">
-                {(assignment.versionHistory || [{ version: 1, timestamp: assignment.assignedDate, questionsCount: assignment.questions.length }]).map((h) => (
+                {(assignment.versionHistory && assignment.versionHistory.length > 0
+                  ? assignment.versionHistory
+                  : [{ version: 1, timestamp: assignment.assignedDate, questionsCount: result?.totalQuestions || 0 }]
+                ).map((h) => (
                   <button
                     key={h.version}
                     onClick={() => {
@@ -390,18 +368,18 @@ export default function AssignmentDetailsPage() {
           {/* Copy All Button */}
           <button
             onClick={handleCopyAllQuestions}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-750 text-white rounded-lg text-xs font-semibold border border-gray-700 transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-[#1A1A1A] rounded-lg text-xs font-semibold border border-gray-200 transition-colors"
           >
-            <Copy className="w-3.5 h-3.5" />
+            <Copy className="w-3.5 h-3.5 text-gray-500" />
             <span>Copy All</span>
           </button>
 
           {/* Share Preview Button */}
           <button
             onClick={handleSharePreviewLink}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-750 text-white rounded-lg text-xs font-semibold border border-gray-700 transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-[#1A1A1A] rounded-lg text-xs font-semibold border border-gray-200 transition-colors"
           >
-            <Share2 className="w-3.5 h-3.5 text-gray-400" />
+            <Share2 className="w-3.5 h-3.5 text-gray-500" />
             <span>Share Link</span>
           </button>
 
@@ -409,32 +387,22 @@ export default function AssignmentDetailsPage() {
           <button
             onClick={handleRegenerate}
             disabled={isRegenerating}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-750 text-white rounded-lg text-xs font-semibold border border-gray-700 transition-colors disabled:opacity-50"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-[#1A1A1A] rounded-lg text-xs font-semibold border border-gray-200 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 text-gray-550 ${isRegenerating ? "animate-spin" : ""}`} />
             <span>{isRegenerating ? "Regenerating..." : "Regenerate"}</span>
-            <span className="shortcut-hint" style={{ fontSize: '10px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '4px', padding: '1px 4px', color: '#FFF', marginLeft: '6px' }}>Ctrl+R</span>
-          </button>
-
-          {/* PDF Download Button */}
-          <button
-            onClick={handleDownloadPDF}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-gradient-to-r from-brand-orange to-[#ff7d4d] hover:brightness-105 active:scale-95 text-white font-bold rounded-lg text-xs transition-all shadow-md shadow-orange-500/10"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download PDF</span>
-            <span className="shortcut-hint" style={{ fontSize: '10px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: '4px', padding: '1px 4px', color: '#FFF', marginLeft: '6px' }}>Ctrl+D</span>
+            <span className="shortcut-hint ml-1.5 text-[9px] border border-gray-250 rounded px-1 text-brand-secondary">Ctrl+E</span>
           </button>
         </div>
       </div>
 
       {/* Regeneration status logs box (if active) */}
-      {isRegenerating && (
-        <div className="bg-gray-900 text-green-400 p-4 rounded-xl font-mono text-xs flex flex-col space-y-1 border border-gray-800">
+      {isRegenerating && currentJob && (
+        <div className="bg-gray-950 text-gray-200 p-4 rounded-xl font-mono text-[11px] flex flex-col space-y-1 border border-gray-800 shadow-inner max-h-40 overflow-y-auto">
           <p className="text-white font-bold mb-1">Regenerating Questions...</p>
-          {regenerateLogs.map((log, index) => (
+          {currentJob.logs.map((log, index) => (
             <div key={index} className="flex items-center space-x-2">
-              <span className="animate-pulse">⚡</span>
+              <span className="animate-pulse text-brand-orange">⚡</span>
               <span>{log}</span>
             </div>
           ))}
@@ -443,30 +411,30 @@ export default function AssignmentDetailsPage() {
 
       {/* Grid: Left Column (Exam sheet), Right Column (Settings & Stats Widget) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        
+
         {/* Left Side: Exam Layout Paper */}
         <div className="lg:col-span-2 space-y-6">
-          
-          {/* Difficulty Summary Chart Widget - Relocated above the question paper card */}
+
+          {/* Difficulty Summary Chart Widget */}
           <div className="bg-white rounded-2xl border border-gray-150 p-5 shadow-sm space-y-4">
             <h4 className="text-xs font-bold text-brand-dark uppercase tracking-wider">
               Difficulty Distribution
             </h4>
-            
+
             {/* Horizontal Segmented Bar */}
             <div className="h-6 rounded-full overflow-hidden flex border border-gray-150 shadow-inner">
-              <div 
-                className="bg-green-500 h-full hover:brightness-105 transition-all cursor-pointer" 
+              <div
+                className="bg-green-505 bg-[#22C55E] h-full hover:brightness-105 transition-all cursor-pointer"
                 style={{ width: `${assignment.difficulty.easy}%` }}
                 title={`Easy: ${assignment.difficulty.easy}%`}
               />
-              <div 
-                className="bg-amber-500 h-full hover:brightness-105 transition-all cursor-pointer" 
+              <div
+                className="bg-amber-505 bg-[#EAB308] h-full hover:brightness-105 transition-all cursor-pointer"
                 style={{ width: `${assignment.difficulty.medium}%` }}
                 title={`Medium: ${assignment.difficulty.medium}%`}
               />
-              <div 
-                className="bg-red-500 h-full hover:brightness-105 transition-all cursor-pointer" 
+              <div
+                className="bg-red-55 bg-[#EF4444] h-full hover:brightness-105 transition-all cursor-pointer"
                 style={{ width: `${assignment.difficulty.hard}%` }}
                 title={`Hard: ${assignment.difficulty.hard}%`}
               />
@@ -475,98 +443,160 @@ export default function AssignmentDetailsPage() {
             {/* Badge Labels & Stats */}
             <div className="flex items-center justify-between text-xs font-semibold gap-4 pt-1 flex-wrap">
               <span className="flex items-center space-x-2 text-green-700">
-                <span className="w-3 h-3 rounded bg-green-500" />
+                <span className="w-3 h-3 rounded bg-[#22C55E]" />
                 <span>Easy: {assignment.difficulty.easy}%</span>
               </span>
               <span className="flex items-center space-x-2 text-amber-600">
-                <span className="w-3 h-3 rounded bg-amber-500" />
+                <span className="w-3 h-3 rounded bg-[#EAB308]" />
                 <span>Medium: {assignment.difficulty.medium}%</span>
               </span>
               <span className="flex items-center space-x-2 text-red-600">
-                <span className="w-3 h-3 rounded bg-red-500" />
+                <span className="w-3 h-3 rounded bg-[#EF4444]" />
                 <span>Hard: {assignment.difficulty.hard}%</span>
               </span>
             </div>
           </div>
 
-          {/* Exam Paper Sheet */}
-          <div className="bg-white rounded-2xl border border-gray-150 p-6 md:p-10 shadow-sm print:shadow-none print:border-none space-y-8">
+          {/* Exam Paper Sheet - White printed paper sheet style */}
+          <div className="bg-white rounded-2xl border border-gray-150 p-8 md:p-12 shadow-sm print:shadow-none print:border-none" id="exam-paper">
             <ErrorBoundary fallback={<div className="p-6 text-center text-red-600 font-bold border border-red-200 rounded-xl">Failed to load question paper. <button onClick={() => window.location.reload()} className="underline font-semibold ml-2">Retry</button></div>}>
               {versionLoading ? (
                 <QuestionPaperSkeleton />
               ) : (
                 <>
-                  {/* School Prefill Header Layout */}
-                  <div className="text-center pb-6 border-b-2 border-gray-200 space-y-2">
-                    <h2 className="text-xl font-black text-brand-dark uppercase tracking-wide">
+                  {/* ===== PAPER HEADER — centered (matches reference image) ===== */}
+                  <div className="text-center mb-4">
+                    <h2 className="text-xl md:text-2xl font-extrabold text-[#1A1A1A] uppercase">
                       {assignment.schoolName || "Veda International School"}
                     </h2>
-                    <h3 className="text-sm font-bold text-brand-secondary">
-                      Term Examination — {assignment.subject}
+                    <h3 className="text-sm font-bold text-[#1A1A1A] uppercase mt-1">
+                      {assignment.title || `${assignment.subject} Examination`}
                     </h3>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-4 text-xs font-semibold text-brand-dark text-left md:text-center max-w-2xl mx-auto border-t border-gray-100">
-                      <div className="p-2 bg-gray-50 rounded">Grade: {assignment.grade}</div>
-                      <div className="p-2 bg-gray-50 rounded">Time: {assignment.timeAllowed} Mins</div>
-                      <div className="p-2 bg-gray-50 rounded">Total Marks: {result ? result.totalMarks : assignment.questions.reduce((a: number, b: { marks: number }) => a + b.marks, 0)} Pts</div>
-                      <div className="p-2 bg-gray-50 rounded">Due Date: {assignment.dueDate}</div>
+                    <p className="text-sm font-semibold text-[#4B5563] mt-0.5">
+                      {assignment.grade} &nbsp;|&nbsp; {assignment.subject}
+                    </p>
+                  </div>
+
+                  <hr className="border-t border-[#1A1A1A]" />
+
+                  {/* ===== EXAM METADATA ROW ===== */}
+                  <div className="flex justify-between items-center text-sm font-bold text-[#1A1A1A] py-2">
+                    <span>Time Allowed: {assignment.timeAllowed} Minutes</span>
+                    <span>Maximum Marks: {result ? result.totalMarks : assignment.questions.reduce((a: number, b: { marks: number }) => a + b.marks, 0)} Marks</span>
+                  </div>
+
+                  <hr className="border-t border-[#1A1A1A] mb-3" />
+
+                  {/* ===== GENERAL INSTRUCTIONS ===== */}
+                  <p className="text-xs italic text-[#374151] mb-4">
+                    General Instructions: Read all questions carefully. All questions are compulsory unless stated otherwise.
+                  </p>
+
+                  {/* ===== STUDENT DETAILS — plain text lines (matches reference) ===== */}
+                  <div className="text-sm font-semibold text-[#1A1A1A] space-y-2 mb-8">
+                    <div className="flex items-center gap-1">
+                      <span className="whitespace-nowrap">Student Name:</span>
+                      <span className="flex-1 border-b border-black ml-1 h-4 inline-block" />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="whitespace-nowrap">Roll Number:</span>
+                      <span className="w-40 border-b border-black ml-1 h-4 inline-block" />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="whitespace-nowrap">Class: {assignment.grade} Section:</span>
+                      <span className="w-20 border-b border-black ml-1 h-4 inline-block" />
                     </div>
                   </div>
 
-                  {/* Student Info Block */}
-                  <div className="border-b border-[#E5E5E5] pb-4 mb-4 font-sans">
-                    <p className="font-bold text-center mb-4 text-sm">All questions are compulsory unless stated otherwise.</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 max-w-xl mx-auto text-sm pt-2">
-                      <p className="flex items-center">
-                        <span className="font-semibold text-brand-secondary mr-2">Name:</span>
-                        <span className="flex-1 border-b border-black h-5">&nbsp;</span>
-                      </p>
-                      <p className="flex items-center">
-                        <span className="font-semibold text-brand-secondary mr-2">Roll Number:</span>
-                        <span className="flex-1 border-b border-black h-5">&nbsp;</span>
-                      </p>
-                      <p className="flex items-center md:col-span-2">
-                        <span className="font-semibold text-brand-secondary mr-2">Class:</span>
-                        <span className="border-b border-black w-24 h-5 text-center font-bold text-brand-dark">{assignment.grade}</span>
-                        <span className="font-semibold text-brand-secondary mx-3">Section:</span>
-                        <span className="flex-1 border-b border-black h-5">&nbsp;</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Sections List */}
-                  <div className="space-y-8">
+                  {/* ===== SECTIONS & QUESTIONS ===== */}
+                  <div className="space-y-10">
                     {result && result.sections.map((section: ISection, sIdx: number) => (
-                      <div key={sIdx} className="space-y-4">
-                        <div className="text-center pb-2 border-b border-dashed border-gray-200">
-                          <h4 className="text-base font-extrabold text-brand-dark uppercase tracking-wide">
-                            {section.title}
+                      <div key={sIdx} className="space-y-3">
+                        {/* Section heading — left-aligned with bottom border (matches reference) */}
+                        <div className="border-b border-[#1A1A1A] pb-1">
+                          <h4 className="text-sm font-extrabold text-[#1A1A1A] uppercase tracking-wide">
+                            {section.title} — {section.questionType}
                           </h4>
-                          <p className="text-xs text-brand-secondary font-bold mt-1">
-                            {section.questionType}
-                          </p>
-                          <p className="text-[11px] text-brand-secondary italic mt-0.5">
-                            {section.instruction}
-                          </p>
                         </div>
-                        
-                        <div className="space-y-4">
+                        {/* Italic instruction line */}
+                        <p className="text-xs italic text-[#1A1A1A]">
+                          {section.instruction}
+                        </p>
+
+                        {/* Questions — matches reference format */}
+                        <div className="space-y-3 pt-1">
                           {section.questions.map((q: IQuestion) => (
-                            <QuestionItem key={q.number} question={q} showAnswerKeys={showAnswerKeys} />
+                            <div key={q.number} className="group relative flex items-start gap-2 text-sm text-[#1A1A1A] leading-relaxed">
+                              {/* Hover Copy Button */}
+                              <div className="absolute -right-1 top-0 opacity-0 group-hover:opacity-100 transition-opacity no-print">
+                                <button
+                                  onClick={() => {
+                                    const copyText = `${q.number}. ${q.text} [${q.marks} Mark${q.marks > 1 ? 's' : ''}]`;
+                                    navigator.clipboard.writeText(copyText);
+                                    addToast(`Question ${q.number} copied!`, "success");
+                                  }}
+                                  className="flex items-center space-x-1 px-2 py-0.5 bg-white border border-gray-200 hover:border-brand-orange hover:text-brand-orange rounded text-[10px] font-bold shadow-sm"
+                                  title="Copy question text"
+                                >
+                                  <Copy className="w-2.5 h-2.5" />
+                                  <span>Copy</span>
+                                </button>
+                              </div>
+                              {/* Question Number */}
+                              <span className="font-bold flex-shrink-0 w-7 text-right">{q.number}.</span>
+                              {/* Question body + difficulty + marks */}
+                              <div className="flex-grow flex items-start justify-between gap-4 pr-16 group-hover:pr-20 transition-all">
+                                <span>
+                                  {q.text}
+                                  {" "}
+                                  <span className="text-[11px] font-semibold uppercase text-[#6B7280]">({q.difficulty})</span>
+                                </span>
+                                <span className="flex-shrink-0 font-bold text-xs text-[#1A1A1A] px-2 py-0.5 whitespace-nowrap">
+                                  [{q.marks} {q.marks === 1 ? 'Mark' : 'Marks'}]
+                                </span>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  {/* End of Question Paper Footer */}
-                  <p className="text-center font-bold mt-8 pt-4 border-t border-[#E5E5E5] text-brand-dark">— End of Question Paper —</p>
+                  {/* ===== END OF PAPER ===== */}
+                  <p className="text-center font-bold text-xs mt-16 pt-4 text-[#6B7280] uppercase tracking-widest">
+                    *** End of Question Paper ***
+                  </p>
 
                   {/* Generation Info Footer */}
                   {result && (
-                    <p style={{ fontSize: '11px', color: '#6B7280', textAlign: 'center', marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid #E5E5E5' }}>
-                      Generated by VedaAI &bull; OpenCode Zen &bull; {new Date(result.generatedAt).toLocaleString()} &bull; Version {result.version}
+                    <p style={{ fontSize: '10px', color: '#9CA3AF', textAlign: 'center', marginTop: '1.5rem', paddingTop: '0.75rem', borderTop: '1px solid #F3F4F6' }}>
+                      Generated by VedaAI &bull; {new Date(result.generatedAt).toLocaleString()} &bull; Version {result.version}
                     </p>
+                  )}
+
+                  {/* ===== ANSWER KEY (numbered list — matches reference) ===== */}
+                  {showAnswerKeys && result && (
+                    <div className="mt-12 pt-6 border-t-2 border-dashed border-[#1A1A1A] font-sans no-print">
+                      <h3 className="text-base font-extrabold text-[#1A1A1A] mb-4">
+                        Answer Key:
+                      </h3>
+                      <div className="space-y-6">
+                        {result.sections.map((section: ISection) => (
+                          <div key={section.title}>
+                            <h4 className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2 border-b border-gray-100 pb-0.5">
+                              {section.title}
+                            </h4>
+                            <ol className="list-decimal list-outside pl-5 space-y-3 text-sm">
+                              {section.questions.map((q: IQuestion) => (
+                                <li key={q.number} className="leading-relaxed text-[#1A1A1A]">
+                                  {q.answer || "No answer key provided."}
+                                </li>
+                              ))}
+                            </ol>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </>
               )}
@@ -583,11 +613,10 @@ export default function AssignmentDetailsPage() {
             </p>
             <button
               onClick={() => setShowAnswerKeys(!showAnswerKeys)}
-              className={`w-full flex items-center justify-center space-x-2 rounded-full py-2.5 text-sm font-semibold transition-all shadow-sm border ${
-                showAnswerKeys
-                  ? "bg-[#1A1A1A] text-white border-transparent"
-                  : "bg-white text-brand-dark border-gray-200 hover:bg-gray-50"
-              }`}
+              className={`w-full flex items-center justify-center space-x-2 rounded-full py-2.5 text-sm font-semibold transition-all shadow-sm border ${showAnswerKeys
+                ? "bg-[#1A1A1A] text-white border-transparent"
+                : "bg-white text-brand-dark border-gray-200 hover:bg-gray-50"
+                }`}
             >
               <span>{showAnswerKeys ? '🙈 Hide Answer Key' : '👁 Show Answer Key'}</span>
             </button>
@@ -602,7 +631,7 @@ export default function AssignmentDetailsPage() {
               <span>Assessment Summary</span>
               {isSummaryExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
             </button>
-            
+
             {isSummaryExpanded && (
               <div className="divide-y divide-gray-100 text-xs font-semibold">
                 <div className="py-2.5 flex justify-between">
@@ -632,7 +661,7 @@ export default function AssignmentDetailsPage() {
 
       </div>
 
-      {/* B4: Keyboard Shortcuts Hint Bar */}
+      {/* Keyboard Shortcuts Hint Bar */}
       <div className="bg-white rounded-2xl border border-gray-150 px-5 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-1 text-[11px] text-brand-secondary">
           <HelpCircle className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
@@ -640,7 +669,7 @@ export default function AssignmentDetailsPage() {
         </div>
         <div className="flex items-center gap-4 text-[11px] text-brand-secondary flex-wrap">
           <span className="flex items-center space-x-1">
-            <kbd className="px-1.5 py-0.5 rounded bg-gray-100 border border-gray-200 font-mono text-[10px] text-brand-dark">Ctrl+R</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-gray-100 border border-gray-200 font-mono text-[10px] text-brand-dark">Ctrl+E</kbd>
             <span>Regenerate</span>
           </span>
           <span className="flex items-center space-x-1">
@@ -654,7 +683,7 @@ export default function AssignmentDetailsPage() {
       <div className="bg-white rounded-2xl border border-gray-150 p-5 text-xs font-medium text-brand-secondary flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
         <div className="flex items-center space-x-2">
           <ShieldCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
-          <span>Bloom's Taxonomy criteria and syllabus alignment metrics verified by VedaAI validator.</span>
+          <span>Bloom&rsquo;s Taxonomy criteria and syllabus alignment metrics verified by VedaAI validator.</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-right md:justify-end">
           <span>Model: <strong className="text-brand-dark font-semibold">OpenCode Zen</strong></span>

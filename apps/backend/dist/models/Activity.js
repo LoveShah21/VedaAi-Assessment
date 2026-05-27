@@ -34,9 +34,14 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Activity = void 0;
+// apps/backend/src/models/Activity.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const ActivitySchema = new mongoose_1.Schema({
-    type: { type: String, required: true },
+    type: {
+        type: String,
+        enum: ['assignment_created', 'paper_generated', 'pdf_downloaded', 'regenerated', 'assignment_deleted'],
+        required: true,
+    },
     assignmentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Assignment' },
     assignmentTitle: { type: String },
     metadata: { type: mongoose_1.Schema.Types.Mixed },

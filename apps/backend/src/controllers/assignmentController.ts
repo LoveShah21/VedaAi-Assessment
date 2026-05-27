@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
+import mongoose from 'mongoose';
 import { Assignment, IAssignment, IQuestionType } from '../models/Assignment';
 import { Result } from '../models/Result';
 import { Activity } from '../models/Activity';
@@ -211,6 +212,13 @@ export const getAssignmentById = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const assignment = await Assignment.findOne({ _id: id, deleted: { $ne: true } });
 
     if (!assignment) {
@@ -221,9 +229,27 @@ export const getAssignmentById = async (
       return;
     }
 
+    // Dynamic Version History Sync based on Result documents
+    const results = await Result.find({ assignmentId: id }).select('version totalQuestions generatedAt').sort({ version: 1 });
+    const versionHistory = results.map(r => ({
+      version: r.version,
+      timestamp: r.generatedAt ? new Date(r.generatedAt).toLocaleString() : new Date().toLocaleString(),
+      questionsCount: r.totalQuestions,
+    }));
+
+    const defaultHistory = [{
+      version: 1,
+      timestamp: new Date(assignment.createdAt).toLocaleString(),
+      questionsCount: 0,
+    }];
+
+    const assignmentObj = assignment.toObject();
+    assignmentObj.versionHistory = versionHistory.length > 0 ? versionHistory : defaultHistory;
+    assignmentObj.version = results.length > 0 ? results[results.length - 1].version : assignment.version;
+
     res.status(200).json({
       success: true,
-      assignment,
+      assignment: assignmentObj,
     });
   } catch (error) {
     next(error);
@@ -237,6 +263,13 @@ export const getAssignmentStatus = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const redisKey = `job:status:${id}`;
     const cached = await cacheService.get(redisKey);
 
@@ -278,6 +311,13 @@ export const getAssignmentResult = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const versionParam = req.query.version ? parseInt(req.query.version as string, 10) : undefined;
     const cacheKey = `result:${id}`;
     const cachedData = await cacheService.get(cacheKey);
@@ -337,6 +377,13 @@ export const regenerateAssignment = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const assignment = await Assignment.findOne({ _id: id, deleted: { $ne: true } });
 
     if (!assignment) {
@@ -391,6 +438,13 @@ export const deleteAssignment = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const assignment = await Assignment.findOne({ _id: id, deleted: { $ne: true } });
 
     if (!assignment) {
@@ -436,6 +490,13 @@ export const duplicateAssignment = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const original = await Assignment.findOne({ _id: id, deleted: { $ne: true } });
 
     if (!original) {
@@ -580,6 +641,13 @@ export const downloadAssignmentPDF = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Assignment not found',
+      });
+      return;
+    }
     const answerKey = req.query.answerKey;
     const assignment = await Assignment.findOne({ _id: id, deleted: { $ne: true } });
     if (!assignment) {
@@ -658,13 +726,21 @@ export const deleteAllAssignments = async (req: Request, res: Response, next: Ne
 export const getResultByVersion = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ error: 'Result not found' });
+      return;
+    }
     const version = req.query.version ? parseInt(req.query.version as string, 10) : undefined;
     const query: Record<string, unknown> = { assignmentId: id };
     if (version !== undefined && !isNaN(version)) query.version = version;
     
-    const result = version
+    let result = version
       ? await Result.findOne(query)
       : await Result.findOne({ assignmentId: id }).sort({ version: -1 });
+      
+    if (!result && version !== undefined) {
+      result = await Result.findOne({ assignmentId: id }).sort({ version: -1 });
+    }
       
     if (!result) {
       res.status(404).json({ error: 'Result not found' });

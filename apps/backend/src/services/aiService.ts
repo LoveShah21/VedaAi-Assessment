@@ -2,10 +2,10 @@
 import axios from 'axios';
 import { IAssignment } from '../models/Assignment';
 import { ISection } from '../models/Result';
+import { env } from '../config/env';
 
 export function buildPrompt(assignment: IAssignment, extractedText?: string): string {
-  return `
-You are an expert educational assessment creator for Indian schools.
+  return `You are an expert educational assessment creator for Indian schools.
 
 Generate a complete question paper with the following specifications:
 
@@ -31,12 +31,14 @@ ${extractedText ? `REFERENCE MATERIAL:\n${extractedText.slice(0, 3000)}` : ''}
 
 ADDITIONAL INSTRUCTIONS: ${assignment.additionalInstructions || 'None'}
 
-Return ONLY valid JSON in this exact structure, no markdown, no explanation:
+IMPORTANT: Your response must be ONLY a valid JSON object. Do not include any explanation, markdown, code fences, or thinking text. Start your response directly with { and end with }.
+
+Required JSON structure:
 {
   "sections": [
     {
       "title": "Section A",
-      "questionType": "Short Answer Questions",
+      "questionType": "MCQ",
       "instruction": "Attempt all questions. Each question carries 2 marks.",
       "questions": [
         {
@@ -49,24 +51,52 @@ Return ONLY valid JSON in this exact structure, no markdown, no explanation:
       ]
     }
   ]
-}
-`;
+}`;
 }
 
-function stripCodeFences(raw: string): string {
-  return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+/**
+ * Extract JSON from LLM response that may contain:
+ * - <think>...</think> reasoning blocks (DeepSeek, Qwen thinking models)
+ * - ```json ... ``` markdown code fences
+ * - Extra explanation text before/after the JSON object
+ */
+function extractJSON(raw: string): string {
+  let text = raw.trim();
+
+  // 1. Strip <think>...</think> blocks (reasoning/thinking models)
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  // 2. Strip markdown code fences
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  // 3. If it already starts with {, return directly
+  if (text.startsWith('{')) {
+    return text;
+  }
+
+  // 4. Find the first complete { ... } block
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return jsonMatch[0];
+  }
+
+  // 5. Return as-is and let JSON.parse throw a clear error
+  return text;
 }
 
 async function callLLM(prompt: string): Promise<string> {
-  const apiKey = process.env.OPENCODE_API_KEY;
-  const model = process.env.OPENCODE_MODEL;
+  const apiKey = env.OPENCODE_API_KEY;
+  const model = env.OPENCODE_MODEL;
+  const apiUrl = env.OPENCODE_API_URL;
 
   if (!apiKey || !model) {
     throw new Error('OPENCODE_API_KEY and OPENCODE_MODEL must be set in environment variables');
   }
 
+  console.log(`🤖 Calling LLM: model=${model}`);
+
   const response = await axios.post(
-    'https://api.opencode.ai/v1/chat/completions',
+    apiUrl,
     {
       model,
       messages: [{ role: 'user', content: prompt }],
@@ -77,11 +107,20 @@ async function callLLM(prompt: string): Promise<string> {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      timeout: 60000,
+      timeout: 120000, // 2 minutes — LLM can take time for large papers
     }
   );
 
-  return response.data.choices[0].message.content;
+  if (!response.data || !response.data.choices || !response.data.choices[0]) {
+    throw new Error(`Invalid API Response structure: ${JSON.stringify(response.data)}`);
+  }
+
+  const content = response.data.choices[0].message.content;
+  const finishReason = response.data.choices[0].finish_reason;
+  console.log(`🤖 LLM responded: ${content?.length} chars, finish_reason=${finishReason}`);
+  console.log(`🤖 Preview: ${content?.substring(0, 200)}`);
+
+  return content;
 }
 
 export async function generateQuestionPaper(
@@ -89,17 +128,22 @@ export async function generateQuestionPaper(
   extractedText?: string
 ): Promise<{ sections: ISection[]; totalMarks: number; totalQuestions: number }> {
   const prompt = buildPrompt(assignment, extractedText);
-
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      console.log(`🔄 AI generation attempt ${attempt}/3`);
       const raw = await callLLM(prompt);
-      const cleaned = stripCodeFences(raw);
+      const cleaned = extractJSON(raw);
+
+      console.log(`🔄 Parsing JSON. Starts with: ${cleaned.substring(0, 80)}`);
       const parsed = JSON.parse(cleaned);
 
       if (!parsed.sections || !Array.isArray(parsed.sections)) {
-        throw new Error('Response missing sections array');
+        throw new Error(`Response missing sections array. Got keys: ${Object.keys(parsed).join(', ')}`);
+      }
+      if (parsed.sections.length === 0) {
+        throw new Error('Response has empty sections array');
       }
 
       const totalQuestions = parsed.sections.reduce(
@@ -112,10 +156,15 @@ export async function generateQuestionPaper(
         0
       );
 
+      console.log(`✅ AI generation succeeded: ${totalQuestions} questions, ${totalMarks} total marks`);
       return { sections: parsed.sections, totalMarks, totalQuestions };
     } catch (err: unknown) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < 3) continue;
+      console.error(`❌ AI attempt ${attempt} failed: ${lastError.message}`);
+      if (attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+        continue;
+      }
     }
   }
 

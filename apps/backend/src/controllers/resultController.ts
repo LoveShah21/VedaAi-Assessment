@@ -1,5 +1,6 @@
 // apps/backend/src/controllers/resultController.ts
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Result } from '../models/Result';
 import { Assignment, IAssignment } from '../models/Assignment';
 import { cacheService } from '../services/cacheService';
@@ -12,6 +13,13 @@ export const getResultById = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        success: false,
+        message: 'Result not found',
+      });
+      return;
+    }
 
     const result = await Result.findById(id);
     if (!result) {
@@ -47,13 +55,18 @@ export const getResultById = async (
 
 export const getResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const cacheKey = `result:${req.params.id}`;
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ error: 'Result not found' });
+      return;
+    }
+    const cacheKey = `result:${id}`;
     const cached = await cacheService.get(cacheKey);
     if (cached) {
       res.status(200).json(JSON.parse(cached));
       return;
     }
-    const result = await Result.findById(req.params.id);
+    const result = await Result.findById(id);
     if (!result) {
       res.status(404).json({ error: 'Result not found' });
       return;
@@ -66,7 +79,12 @@ export const getResult = async (req: Request, res: Response, next: NextFunction)
 
 export const streamPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const result = await Result.findById(req.params.id).populate('assignmentId');
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ error: 'Result not found' });
+      return;
+    }
+    const result = await Result.findById(id).populate('assignmentId');
     if (!result) {
       res.status(404).json({ error: 'Result not found' });
       return;
