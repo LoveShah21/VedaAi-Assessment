@@ -6,9 +6,27 @@ import { env } from '../config/env';
 let io: SocketIOServer | null = null;
 
 export const initSocket = (server: HttpServer): SocketIOServer => {
+  const allowedOrigins = [env.FRONTEND_URL, 'http://localhost:3000'];
   io = new SocketIOServer(server, {
     cors: {
-      origin: env.FRONTEND_URL,
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        try {
+          const hostname = new URL(origin).hostname;
+          const isVercel = /\.vercel\.app$/.test(hostname);
+          const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+          if (allowedOrigins.includes(origin) || isVercel || isLocal) {
+            callback(null, origin);
+          } else {
+            callback(new Error(`Origin ${origin} not allowed by CORS`));
+          }
+        } catch (err) {
+          callback(null, false);
+        }
+      },
       methods: ['GET', 'POST'],
       credentials: true,
     },

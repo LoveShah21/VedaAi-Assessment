@@ -37,9 +37,33 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // Middlewares
+// Request logger for visibility in Render/deployment logs
+app.use((req, res, next) => {
+  console.log(`📥 [${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+const allowedOrigins = [env.FRONTEND_URL, 'http://localhost:3000'];
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      try {
+        const hostname = new URL(origin).hostname;
+        const isVercel = /\.vercel\.app$/.test(hostname);
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+        if (allowedOrigins.includes(origin) || isVercel || isLocal) {
+          callback(null, true);
+        } else {
+          callback(new Error(`Origin ${origin} not allowed by CORS`));
+        }
+      } catch (err) {
+        callback(null, false);
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
   })
