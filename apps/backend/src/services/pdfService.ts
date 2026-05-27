@@ -169,6 +169,17 @@ export async function generatePdf(
       '--disable-gpu',             // No GPU process needed in containers
       '--no-zygote',               // Reduces process spawning overhead
       '--single-process',          // Single process mode — lower memory, acceptable for PDF gen
+      '--disable-extensions',      // Disable Chrome extensions
+      '--disable-component-update', // Disable component updates
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-ipc-flooding-protection',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--no-first-run',
+      '--disable-default-apps',
     ],
     headless: true,
   });
