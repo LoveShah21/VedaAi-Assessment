@@ -6,6 +6,9 @@ const proxy = httpProxy.createProxyServer({
   ws: true
 });
 
+const BACKEND_PORT = process.env.BACKEND_PORT || 4000;
+const FRONTEND_PORT = process.env.FRONTEND_PORT || 3000;
+
 const server = http.createServer((req, res) => {
   // Route api, socket.io, and uploads to Express backend
   if (
@@ -13,19 +16,19 @@ const server = http.createServer((req, res) => {
     req.url.startsWith('/socket.io') || 
     req.url.startsWith('/uploads')
   ) {
-    proxy.web(req, res, { target: 'http://localhost:4000' });
+    proxy.web(req, res, { target: `http://localhost:${BACKEND_PORT}` });
   } else {
     // Everything else to Next.js frontend
-    proxy.web(req, res, { target: 'http://localhost:3000' });
+    proxy.web(req, res, { target: `http://localhost:${FRONTEND_PORT}` });
   }
 });
 
 // Proxy websockets
 server.on('upgrade', (req, socket, head) => {
   if (req.url.startsWith('/socket.io')) {
-    proxy.ws(req, socket, head, { target: 'http://localhost:4000' });
+    proxy.ws(req, socket, head, { target: `http://localhost:${BACKEND_PORT}` });
   } else {
-    proxy.ws(req, socket, head, { target: 'http://localhost:3000' });
+    proxy.ws(req, socket, head, { target: `http://localhost:${FRONTEND_PORT}` });
   }
 });
 

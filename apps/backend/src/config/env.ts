@@ -5,7 +5,10 @@ import { z } from 'zod';
 dotenv.config();
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(4000),
+  PORT: z.preprocess(
+    (val) => process.env.BACKEND_PORT || val,
+    z.coerce.number().default(4000)
+  ),
   MONGODB_URI: z.string().default('mongodb://localhost:27017/vedaai'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   OPENCODE_API_KEY: z.string().min(1, 'OPENCODE_API_KEY is required'),

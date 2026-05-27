@@ -58,3 +58,18 @@ body {
 .avatar-bg-2 { background-color: #dcfce7; color: #15803d; }
 .avatar-bg-3 { background-color: #f3e8ff; color: #6b21a8; }
 .avatar-bg-4 { background-color: #fef3c7; color: #b45309; }
+
+/* Hide default browser calendar picker icon and expand the trigger area */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  color: transparent;
+  background: transparent;
+  cursor: pointer;
+}
+

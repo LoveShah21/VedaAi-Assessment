@@ -9,7 +9,7 @@ const zod_1 = require("zod");
 // Load environment variables from .env file
 dotenv_1.default.config();
 const envSchema = zod_1.z.object({
-    PORT: zod_1.z.coerce.number().default(4000),
+    PORT: zod_1.z.preprocess((val) => process.env.BACKEND_PORT || val, zod_1.z.coerce.number().default(4000)),
     MONGODB_URI: zod_1.z.string().default('mongodb://localhost:27017/vedaai'),
     REDIS_URL: zod_1.z.string().default('redis://localhost:6379'),
     OPENCODE_API_KEY: zod_1.z.string().min(1, 'OPENCODE_API_KEY is required'),
