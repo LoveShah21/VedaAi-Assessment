@@ -14,6 +14,15 @@ RUN npm install
 # Copy source files
 COPY . .
 
+# Accept NEXT_PUBLIC_* vars as build args so Next.js can bake them
+# into the client-side bundle during `next build`
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_SOCKET_URL
+ARG NEXT_PUBLIC_SIMULATE=false
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_SOCKET_URL=$NEXT_PUBLIC_SOCKET_URL \
+    NEXT_PUBLIC_SIMULATE=$NEXT_PUBLIC_SIMULATE
+
 # Compile backend TypeScript and build Next.js frontend
 RUN npm run build
 
@@ -39,8 +48,8 @@ WORKDIR /usr/src/app
 # Copy built code and dependencies from builder
 COPY --from=builder /usr/src/app /usr/src/app
 
-# Expose proxy port (Render default)
-EXPOSE 10000
+# Render assigns PORT dynamically at runtime — do NOT hardcode it here
+# EXPOSE is informational only; the actual port is read from $PORT env var
 
 # Start Express, Next.js, and Root Proxy concurrently
 CMD ["npm", "start"]

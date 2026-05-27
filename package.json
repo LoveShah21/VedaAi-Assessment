@@ -14,7 +14,7 @@
     "start:frontend": "npm run start --workspace=apps/frontend",
     "install:all": "npm install",
     "build": "npm run build:backend && npm run build:frontend",
-    "start": "BACKEND_PORT=4001 PORT=4001 npm run start:backend & npm run start:frontend -- -p 3000 & BACKEND_PORT=4001 node server.js",
+    "start": "BACKEND_PORT=4001 PORT=4001 npm run start:backend & npm run start:frontend & BACKEND_PORT=4001 node server.js",
     "verify": "node verify_connections.js"
   },
   "dependencies": {
